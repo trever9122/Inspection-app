@@ -7,6 +7,7 @@ from fpdf import FPDF
 from openai import OpenAI
 import datetime
 import os
+import time
 
 # ---------- CONFIG ----------
 
@@ -32,10 +33,13 @@ DEFAULT_TEMPLATES = {
 
 CONDITION_OPTIONS = ["Good", "Fair", "Poor"]
 
-# ---------- AI PHOTO ANALYSIS (NEW OPENAI API) ----------
+# ---------- AI PHOTO ANALYSIS (NEW OPENAI API + RETRY) ----------
 
 def analyze_photo(image_file):
     img = Image.open(image_file).convert("RGB")
+    # Reduce size to avoid rate limits / cost
+    img.thumbnail((1024, 1024))
+
     buffered = io.BytesIO()
     img.save(buffered, format="JPEG")
     img_bytes = buffered.getvalue()
@@ -50,21 +54,33 @@ def analyze_photo(image_file):
         "Note: <one or two sentences>"
     )
 
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
+    response = None
+    last_error = None
+
+    for attempt in range(3):
+        try:
+            response = client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
                     {
-                        "type": "image_url",
-                        "image_url": f"data:image/jpeg;base64,{img_b64}",
-                    },
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {
+                                "type": "image_url",
+                                "image_url": f"data:image/jpeg;base64,{img_b64}",
+                            },
+                        ],
+                    }
                 ],
-            }
-        ],
-    )
+            )
+            break
+        except Exception as e:
+            last_error = e
+            time.sleep(1.5)
+
+    if response is None:
+        raise last_error
 
     ai_text = response.choices[0].message.content
     lines = [l.strip() for l in ai_text.split("\n") if l.strip()]
@@ -144,6 +160,7 @@ def generate_pdf(property_name, unit_name, inspection_type, data, photos_dict):
         for idx, f in enumerate(files):
             try:
                 img = Image.open(f).convert("RGB")
+                img.thumbnail((800, 800))
                 img_buffer = io.BytesIO()
                 img.save(img_buffer, format="JPEG")
                 img_buffer.seek(0)
@@ -282,22 +299,25 @@ for item in items:
         if ai_photo and st.button(
             f"Analyze {item} Photo with AI", key=f"{key_prefix}_analyze"
         ):
-            with st.spinner("Analyzing photo with AI..."):
-                ai_condition, ai_note = analyze_photo(ai_photo)
+            try:
+                with st.spinner("Analyzing photo with AI..."):
+                    ai_condition, ai_note = analyze_photo(ai_photo)
 
-            st.success(f"AI Condition: {ai_condition}")
-            st.info(f"AI Note: {ai_note}")
+                st.success(f"AI Condition: {ai_condition}")
+                st.info(f"AI Note: {ai_note}")
 
-            if st.button(
-                f"Use AI result for {item}", key=f"{key_prefix}_apply_ai"
-            ):
-                st.session_state[condition_key] = ai_condition
-                st.session_state[note_key] = ai_note
-                st.session_state.inspection_data[(selected_room, item)] = {
-                    "condition": ai_condition,
-                    "note": ai_note,
-                }
-                st.success("AI result applied to this item.")
+                if st.button(
+                    f"Use AI result for {item}", key=f"{key_prefix}_apply_ai"
+                ):
+                    st.session_state[condition_key] = ai_condition
+                    st.session_state[note_key] = ai_note
+                    st.session_state.inspection_data[(selected_room, item)] = {
+                        "condition": ai_condition,
+                        "note": ai_note,
+                    }
+                    st.success("AI result applied to this item.")
+            except Exception as e:
+                st.error(f"AI analysis failed: {e}")
 
     # Save manual edits
     st.session_state.inspection_data[(selected_room, item)] = {
