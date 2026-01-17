@@ -14,7 +14,10 @@ st.set_page_config(page_title="AI Inspection App (Azure Vision)", layout="wide")
 AZURE_VISION_ENDPOINT = st.secrets["AZURE_VISION_ENDPOINT"].rstrip("/")
 AZURE_VISION_KEY = st.secrets["AZURE_VISION_KEY"]
 
-VISION_ANALYZE_URL = f"{AZURE_VISION_ENDPOINT}/computervision/imageanalysis:analyze?api-version=2023-10-01&features=tags,caption"
+VISION_ANALYZE_URL = (
+    f"{AZURE_VISION_ENDPOINT}/computervision/imageanalysis:analyze"
+    "?api-version=2023-10-01&features=tags,caption"
+)
 
 # ---------- DATA MODELS ----------
 
@@ -34,88 +37,42 @@ DEFAULT_TEMPLATES = {
 
 CONDITION_OPTIONS = ["Good", "Fair", "Poor"]
 
-# Tags we care about for PHYSICAL condition only
+# ---------- STRUCTURAL TAG FILTERING ----------
+
 STRUCTURAL_NEGATIVE_TAGS = {
-    "crack",
-    "cracked",
-    "damage",
-    "damaged",
-    "broken",
-    "stain",
-    "stained",
-    "dirty",
-    "dirt",
-    "mold",
-    "mould",
-    "rust",
-    "rusty",
-    "peeling",
-    "chipped",
-    "hole",
-    "holes",
-    "scratch",
-    "scratched",
-    "worn",
-    "wear",
-    "scuff",
-    "scuffed",
-    "dent",
-    "dented",
-    "leak",
-    "leaking",
-    "water damage",
+    "crack", "cracked", "damage", "damaged", "broken", "stain", "stained",
+    "dirty", "dirt", "mold", "mould", "rust", "rusty", "peeling", "chipped",
+    "hole", "holes", "scratch", "scratched", "worn", "wear", "scuff",
+    "scuffed", "dent", "dented", "leak", "leaking", "water damage"
 }
 
 STRUCTURAL_MINOR_TAGS = {
-    "worn",
-    "wear",
-    "scuff",
-    "scuffed",
-    "chipped",
-    "scratch",
-    "scratched",
-    "discoloration",
-    "discoloured",
-    "faded",
+    "worn", "wear", "scuff", "scuffed", "chipped", "scratch", "scratched",
+    "discoloration", "discoloured", "faded"
 }
 
 STRUCTURAL_POSITIVE_TAGS = {
-    "clean",
-    "intact",
-    "undamaged",
-    "new",
-    "well maintained",
-    "good condition",
+    "clean", "intact", "undamaged", "new", "well maintained", "good condition"
 }
 
-# Tags to ignore (tenant belongings, clutter, personal items)
 IGNORED_TAGS = {
-    "cluttered",
-    "messy",
-    "clothes",
-    "clothing",
-    "bed",
-    "blanket",
-    "pillow",
-    "box",
-    "boxes",
-    "furniture",
-    "sofa",
-    "chair",
-    "table",
-    "personal items",
-    "decor",
-    "decoration",
-    "toys",
-    "laptop",
-    "phone",
-    "bag",
-    "bags",
-    "shoes",
-    "books",
-    "bedding",
-    "laundry",
+    "cluttered", "messy", "clothes", "clothing", "bed", "blanket", "pillow",
+    "box", "boxes", "bedding", "furniture", "sofa", "chair", "table",
+    "personal items", "decor", "decoration", "toys", "laptop", "phone",
+    "bag", "bags", "shoes", "books", "guitar", "instrument", "monitor",
+    "tv", "television", "dresser", "couch", "lamp", "mirror", "frame",
+    "plant", "plants", "bottle", "bottles", "laundry"
 }
+
+# ---------- CAPTION CLEANING ----------
+
+def clean_caption_for_condition(caption):
+    words = caption.split()
+    cleaned = []
+    for w in words:
+        if w.lower().strip(".,") not in IGNORED_TAGS:
+            cleaned.append(w)
+    return " ".join(cleaned).strip()
 
 # ---------- AZURE VISION ANALYSIS ----------
 
@@ -153,17 +110,15 @@ def analyze_with_azure(image_file):
 
     return tags, caption_text
 
-# ---------- CONDITION + NOTE LOGIC (NO AI, CONDITION ONLY) ----------
+# ---------- CONDITION + NOTE LOGIC ----------
 
 def derive_condition_and_note(tags, caption_text, item_name):
-    # Filter tags: ignore non-structural / clutter / belongings
     structural_tags = []
     for name, conf in tags:
         if name in IGNORED_TAGS:
             continue
         structural_tags.append((name, conf))
 
-    # Determine severity
     has_severe = False
     has_minor = False
     has_positive = False
@@ -183,7 +138,6 @@ def derive_condition_and_note(tags, caption_text, item_name):
             has_positive = True
             positive_hits.append(name)
 
-    # Condition scoring
     if has_severe:
         condition = "Poor"
     elif has_minor:
@@ -191,49 +145,37 @@ def derive_condition_and_note(tags, caption_text, item_name):
     else:
         condition = "Good"
 
-    # Build note (medium detail, condition-only)
+    clean_caption = clean_caption_for_condition(caption_text)
+
     note_parts = []
 
-    # If we have a caption, but we must strip clutter-like language
-    clean_caption = caption_text
-    for word in ["cluttered", "messy", "clothes", "bedding", "boxes", "personal items"]:
-        clean_caption = clean_caption.replace(word, "").replace(word.capitalize(), "")
-
-    clean_caption = clean_caption.strip()
-
     if condition == "Good":
-        if positive_hits:
-            note_parts.append(
-                f"{item_name} appears in good condition with no significant visible damage."
-            )
-        else:
-            note_parts.append(
-                f"{item_name} appears to be in acceptable condition with no obvious defects noted."
-            )
+        note_parts.append(
+            f"{item_name} appears to be in good condition with no visible structural issues."
+        )
     elif condition == "Fair":
         if minor_hits:
             note_parts.append(
-                f"Minor wear or cosmetic issues observed on the {item_name}, such as {', '.join(set(minor_hits))}."
+                f"Minor cosmetic wear observed on the {item_name}, including {', '.join(set(minor_hits))}."
             )
         else:
             note_parts.append(
-                f"Some general wear is visible on the {item_name}, but it remains functional."
+                f"Some general wear is visible on the {item_name}, but no major defects noted."
             )
-    else:  # Poor
+    else:
         if negative_hits:
             note_parts.append(
-                f"Visible damage or significant issues observed on the {item_name}, including {', '.join(set(negative_hits))}. Repair is recommended."
+                f"Visible damage detected on the {item_name}, including {', '.join(set(negative_hits))}. Repair is recommended."
             )
         else:
             note_parts.append(
-                f"The {item_name} shows notable damage or deterioration. Further assessment and repair are recommended."
+                f"The {item_name} shows significant deterioration. Further assessment is recommended."
             )
 
     if clean_caption:
         note_parts.append(f"(Visual summary: {clean_caption}.)")
 
-    note = " ".join(note_parts)
-    return condition, note
+    return condition, " ".join(note_parts)
 
 def analyze_photo_condition_only(image_file, item_name):
     tags, caption_text = analyze_with_azure(image_file)
@@ -284,7 +226,6 @@ def generate_pdf(property_name, unit_name, inspection_type, data, photos_dict):
             pdf.multi_cell(0, 5, f"  Note: {note}")
             pdf.set_font("Arial", "", 11)
 
-    # Photos section
     pdf.add_page()
     pdf.set_font("Arial", "B", 12)
     pdf.cell(0, 8, "Photos", ln=True)
@@ -327,12 +268,12 @@ def generate_pdf(property_name, unit_name, inspection_type, data, photos_dict):
 # ---------- SESSION STATE ----------
 
 if "inspection_data" not in st.session_state:
-    st.session_state.inspection_data = {}  # (room, item) -> {"condition": ..., "note": ...}
+    st.session_state.inspection_data = {}
 
 if "photos" not in st.session_state:
-    st.session_state.photos = {}  # (room, item) -> [files]
+    st.session_state.photos = {}
 
-# ---------- SIDEBAR: SETUP ----------
+# ---------- SIDEBAR ----------
 
 st.sidebar.title("Inspection Setup")
 
@@ -355,9 +296,9 @@ if st.sidebar.button("Reset Inspection Data"):
     st.session_state.photos = {}
     st.sidebar.success("Inspection data cleared.")
 
-# ---------- MAIN HEADER ----------
+# ---------- MAIN UI ----------
 
-st.title("AI-Powered Inspection App (Azure Vision, Condition-Only)")
+st.title("AI-Powered Inspection App (Azure Vision — Condition Only)")
 
 st.markdown(
     f"**Property:** {property_name} &nbsp;&nbsp; | &nbsp;&nbsp; "
@@ -366,8 +307,6 @@ st.markdown(
 )
 
 st.markdown("---")
-
-# ---------- ROOM VIEW ----------
 
 current_room_struct = next(r for r in template_rooms if r["room"] == selected_room)
 items = current_room_struct["items"]
@@ -381,7 +320,7 @@ for item in items:
 
     cols = st.columns([1, 2])
 
-    # LEFT: Condition + Notes
+    # LEFT SIDE
     with cols[0]:
         condition_key = f"{key_prefix}_condition"
         note_key = f"{key_prefix}_note"
@@ -393,9 +332,7 @@ for item in items:
         condition = st.radio(
             "Condition",
             CONDITION_OPTIONS,
-            index=CONDITION_OPTIONS.index(current_condition)
-            if current_condition in CONDITION_OPTIONS
-            else 0,
+            index=CONDITION_OPTIONS.index(current_condition),
             key=condition_key,
             horizontal=True,
         )
@@ -411,7 +348,7 @@ for item in items:
             placeholder=f"Add any notes about the {item.lower()}...",
         )
 
-    # RIGHT: Photos + Azure Analysis
+    # RIGHT SIDE
     with cols[1]:
         st.write("**Photos**")
 
@@ -430,15 +367,15 @@ for item in items:
             for p in st.session_state.photos[photos_key]:
                 st.image(p, caption=f"{item} photo", use_column_width=True)
 
-        st.markdown("**AI Photo Analysis (Azure, Condition Only)**")
+        st.markdown("**AI Photo Analysis (Azure Vision)**")
         ai_photo = st.file_uploader(
-            f"Upload a photo of the {item} for condition analysis",
+            f"Upload a photo of the {item} for analysis",
             type=["jpg", "jpeg", "png"],
             key=f"{key_prefix}_ai_photo",
         )
 
         if ai_photo and st.button(
-            f"Analyze {item} Photo with Azure", key=f"{key_prefix}_analyze"
+            f"Analyze {item} Photo", key=f"{key_prefix}_analyze"
         ):
             try:
                 with st.spinner("Analyzing photo with Azure Vision..."):
@@ -456,11 +393,10 @@ for item in items:
                         "condition": ai_condition,
                         "note": ai_note,
                     }
-                    st.success("Azure result applied to this item.")
+                    st.success("Azure result applied.")
             except Exception as e:
                 st.error(f"Azure analysis failed: {e}")
 
-    # Save manual edits
     st.session_state.inspection_data[(selected_room, item)] = {
         "condition": st.session_state.get(condition_key, "Good"),
         "note": st.session_state.get(note_key, ""),
