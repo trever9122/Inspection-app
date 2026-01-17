@@ -1,5 +1,5 @@
 # ------------------------------
-# inspection_app.py (FINAL BUILD - NO WIDGET KEY ERRORS)
+# inspection_app.py (STABLE BUILD)
 # ------------------------------
 
 import streamlit as st
@@ -90,6 +90,21 @@ IGNORED_TAGS = {
     "pillowcase", "sheet", "towel", "basket", "bin", "container"
 }
 
+# ---------- TEXT CLEANING FOR PDF (ASCII ONLY) ----------
+
+def clean_text(text):
+    if not text:
+        return ""
+    safe = (
+        str(text)
+        .replace("•", "-")
+        .replace("—", "-")
+        .replace("–", "-")
+        .encode("latin-1", "replace")
+        .decode("latin-1")
+    )
+    return safe
+
 # ---------- AZURE VISION ANALYSIS ----------
 
 def analyze_with_azure(image_file):
@@ -124,7 +139,7 @@ def analyze_with_azure(image_file):
 
     return tags, caption_text
 
-# ---------- CONDITION + NOTE LOGIC (STRUCTURE ONLY, NATURAL LANGUAGE) ----------
+# ---------- CONDITION + NOTE LOGIC (STRUCTURE ONLY) ----------
 
 def derive_condition_and_note(tags, caption_text, item_name):
     structural_tags = []
@@ -196,23 +211,23 @@ def merge_conditions_and_notes(results, item_name):
             notes.append(note)
 
     if notes:
-        bullet_notes = "\n".join([f"• {n}" for n in notes])
+        bullet_notes = "\n".join([f"- {n}" for n in notes])
     else:
         if worst_condition == "Good":
-            bullet_notes = f"• {item_name} appears clean and well-maintained."
+            bullet_notes = f"- {item_name} appears clean and well-maintained."
         elif worst_condition == "Fair":
-            bullet_notes = f"• {item_name} shows general wear consistent with normal use."
+            bullet_notes = f"- {item_name} shows general wear consistent with normal use."
         else:
-            bullet_notes = f"• {item_name} shows visible damage and may require repair."
+            bullet_notes = f"- {item_name} shows visible damage and may require repair."
 
     return worst_condition, bullet_notes
 
-# ---------- PDF GENERATION (PROFESSIONAL LAYOUT) ----------
+# ---------- PDF GENERATION ----------
 
 class InspectionPDF(FPDF):
     def header(self):
         self.set_font("Helvetica", "B", 16)
-        self.cell(0, 10, "Inspection Report", ln=True, align="C")
+        self.cell(0, 10, clean_text("Inspection Report"), ln=True, align="C")
         self.ln(2)
         self.set_draw_color(200, 200, 200)
         self.set_line_width(0.5)
@@ -223,7 +238,7 @@ class InspectionPDF(FPDF):
         self.set_y(-15)
         self.set_font("Helvetica", "I", 8)
         self.set_text_color(120, 120, 120)
-        self.cell(0, 10, f"Page {self.page_no()}", align="C")
+        self.cell(0, 10, clean_text(f"Page {self.page_no()}"), align="C")
 
 def generate_pdf(property_name, unit_name, inspection_type, data, photos_dict):
     pdf = InspectionPDF()
@@ -232,10 +247,10 @@ def generate_pdf(property_name, unit_name, inspection_type, data, photos_dict):
 
     pdf.set_font("Helvetica", "", 12)
     pdf.set_text_color(0, 0, 0)
-    pdf.cell(0, 8, f"Property: {property_name}", ln=True)
-    pdf.cell(0, 8, f"Unit: {unit_name}", ln=True)
-    pdf.cell(0, 8, f"Inspection Type: {inspection_type}", ln=True)
-    pdf.cell(0, 8, f"Date: {datetime.date.today().isoformat()}", ln=True)
+    pdf.cell(0, 8, clean_text(f"Property: {property_name}"), ln=True)
+    pdf.cell(0, 8, clean_text(f"Unit: {unit_name}"), ln=True)
+    pdf.cell(0, 8, clean_text(f"Inspection Type: {inspection_type}"), ln=True)
+    pdf.cell(0, 8, clean_text(f"Date: {datetime.date.today().isoformat()}"), ln=True)
     pdf.ln(6)
 
     pdf.set_draw_color(180, 180, 180)
@@ -255,7 +270,7 @@ def generate_pdf(property_name, unit_name, inspection_type, data, photos_dict):
             pdf.ln(4)
             pdf.set_font("Helvetica", "B", 13)
             pdf.set_text_color(30, 30, 30)
-            pdf.cell(0, 8, room, ln=True)
+            pdf.cell(0, 8, clean_text(room), ln=True)
             pdf.set_draw_color(210, 210, 210)
             pdf.set_line_width(0.3)
             pdf.line(10, pdf.get_y(), 200, pdf.get_y())
@@ -264,16 +279,16 @@ def generate_pdf(property_name, unit_name, inspection_type, data, photos_dict):
             pdf.set_text_color(0, 0, 0)
 
         pdf.set_font("Helvetica", "B", 11)
-        pdf.cell(0, 6, f"{item} — {condition}", ln=True)
+        pdf.cell(0, 6, clean_text(f"{item} — {condition}"), ln=True)
         if note:
             pdf.set_font("Helvetica", "", 10)
-            pdf.multi_cell(0, 5, note)
+            pdf.multi_cell(0, 5, clean_text(note))
         pdf.ln(2)
 
     pdf.add_page()
     pdf.set_font("Helvetica", "B", 13)
     pdf.set_text_color(30, 30, 30)
-    pdf.cell(0, 8, "Photos", ln=True)
+    pdf.cell(0, 8, clean_text("Photos"), ln=True)
     pdf.ln(4)
 
     for key, files in photos_dict.items():
@@ -283,7 +298,7 @@ def generate_pdf(property_name, unit_name, inspection_type, data, photos_dict):
 
         pdf.set_font("Helvetica", "B", 11)
         pdf.set_text_color(40, 40, 40)
-        pdf.cell(0, 6, f"{room} — {item}", ln=True)
+        pdf.cell(0, 6, clean_text(f"{room} — {item}"), ln=True)
         pdf.ln(2)
 
         x_start = 10
@@ -324,7 +339,8 @@ def generate_pdf(property_name, unit_name, inspection_type, data, photos_dict):
 
         pdf.ln(max_height_in_row + 6)
 
-    return pdf.output(dest="S").encode("latin-1")
+    # Safe bytes for Streamlit download
+    return pdf.output(dest="S").encode("latin-1", "replace")
 
 # ---------- SESSION STATE ----------
 
@@ -447,8 +463,7 @@ for item in items:
                 st.info("AI Suggested Notes:\n" + combined_note)
 
                 if st.button(f"Use AI result for {item}", key=f"{key_prefix}_apply_ai"):
-                    # Do NOT write into widget keys directly to avoid Streamlit conflicts
-                    # Only update inspection_data; widgets will reflect on next interaction
+                    # Only save into inspection_data; do NOT touch widget keys
                     st.session_state.inspection_data[(selected_room, item)] = {
                         "condition": final_condition,
                         "note": combined_note,
