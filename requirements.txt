@@ -1,6 +1,5 @@
-fpdf
 streamlit
 pillow
 pandas
-streamlit-dragdroplist
-openai
+fpdf
+openai>=1.0.0
