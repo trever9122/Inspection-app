@@ -1,3 +1,7 @@
+# ------------------------------
+# inspection_app.py (FINAL BUILD)
+# ------------------------------
+
 import streamlit as st
 from PIL import Image
 import io
@@ -96,12 +100,11 @@ def analyze_with_azure(image_file):
             conf = t.get("confidence", 0.0)
             tags.append((name, conf))
 
-    # We ignore Azure's caption completely for notes
     caption_text = result.get("captionResult", {}).get("text", "")
 
     return tags, caption_text
 
-# ---------- CONDITION + NOTE LOGIC (STRUCTURE ONLY) ----------
+# ---------- CONDITION + NOTE LOGIC (STRUCTURE ONLY, NATURAL LANGUAGE) ----------
 
 def derive_condition_and_note(tags, caption_text, item_name):
     structural_tags = []
@@ -131,57 +134,75 @@ def derive_condition_and_note(tags, caption_text, item_name):
     else:
         condition = "Good"
 
-    if negative_hits:
-        clean_caption = "visible structural damage present"
-    elif minor_hits:
-        clean_caption = "minor cosmetic wear observed"
-    else:
-        clean_caption = "no visible structural issues"
-
-    note_parts = []
-
     if condition == "Good":
-        note_parts.append(
-            f"{item_name} appears to be in good condition with no visible structural issues."
-        )
+        note = f"{item_name} appears clean and well-maintained with no concerns noted."
     elif condition == "Fair":
         if minor_hits:
-            note_parts.append(
-                f"Minor cosmetic wear observed on the {item_name}, including {', '.join(set(minor_hits))}."
+            note = (
+                f"{item_name} shows light wear, including {', '.join(set(minor_hits))}. "
+                "Overall condition is acceptable."
             )
         else:
-            note_parts.append(
-                f"Some general wear is visible on the {item_name}, but no major defects noted."
-            )
+            note = f"{item_name} shows general wear consistent with normal use."
     else:
         if negative_hits:
-            note_parts.append(
-                f"Visible damage detected on the {item_name}, including {', '.join(set(negative_hits))}. Repair is recommended."
+            note = (
+                f"{item_name} shows visible damage, including {', '.join(set(negative_hits))}. "
+                "Repairs should be scheduled."
             )
         else:
-            note_parts.append(
-                f"The {item_name} shows significant deterioration. Further assessment is recommended."
-            )
+            note = f"{item_name} shows significant deterioration and may require repair."
 
-    note_parts.append(f"(Visual summary: {clean_caption}.)")
-
-    return condition, " ".join(note_parts)
+    return condition, note
 
 def analyze_photo_condition_only(image_file, item_name):
     tags, caption_text = analyze_with_azure(image_file)
     return derive_condition_and_note(tags, caption_text, item_name)
 
-# ---------- PDF GENERATION ----------
+# ---------- CONDITION MERGING (MULTI-PHOTO) ----------
+
+def merge_conditions_and_notes(results, item_name):
+    if not results:
+        return "Good", ""
+
+    condition_rank = {"Good": 1, "Fair": 2, "Poor": 3}
+    worst_condition = "Good"
+    notes = []
+
+    for cond, note in results:
+        if condition_rank[cond] > condition_rank[worst_condition]:
+            worst_condition = cond
+        if note and note not in notes:
+            notes.append(note)
+
+    if notes:
+        bullet_notes = "\n".join([f"• {n}" for n in notes])
+    else:
+        if worst_condition == "Good":
+            bullet_notes = f"• {item_name} appears clean and well-maintained."
+        elif worst_condition == "Fair":
+            bullet_notes = f"• {item_name} shows general wear consistent with normal use."
+        else:
+            bullet_notes = f"• {item_name} shows visible damage and may require repair."
+
+    return worst_condition, bullet_notes
+
+# ---------- PDF GENERATION (PROFESSIONAL LAYOUT) ----------
 
 class InspectionPDF(FPDF):
     def header(self):
-        self.set_font("Arial", "B", 14)
+        self.set_font("Helvetica", "B", 16)
         self.cell(0, 10, "Inspection Report", ln=True, align="C")
-        self.ln(5)
+        self.ln(2)
+        self.set_draw_color(200, 200, 200)
+        self.set_line_width(0.5)
+        self.line(10, 22, 200, 22)
+        self.ln(4)
 
     def footer(self):
         self.set_y(-15)
-        self.set_font("Arial", "I", 8)
+        self.set_font("Helvetica", "I", 8)
+        self.set_text_color(120, 120, 120)
         self.cell(0, 10, f"Page {self.page_no()}", align="C")
 
 def generate_pdf(property_name, unit_name, inspection_type, data, photos_dict):
@@ -189,12 +210,18 @@ def generate_pdf(property_name, unit_name, inspection_type, data, photos_dict):
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
 
-    pdf.set_font("Arial", "", 12)
+    pdf.set_font("Helvetica", "", 12)
+    pdf.set_text_color(0, 0, 0)
     pdf.cell(0, 8, f"Property: {property_name}", ln=True)
     pdf.cell(0, 8, f"Unit: {unit_name}", ln=True)
     pdf.cell(0, 8, f"Inspection Type: {inspection_type}", ln=True)
     pdf.cell(0, 8, f"Date: {datetime.date.today().isoformat()}", ln=True)
-    pdf.ln(5)
+    pdf.ln(6)
+
+    pdf.set_draw_color(180, 180, 180)
+    pdf.set_line_width(0.4)
+    pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+    pdf.ln(4)
 
     current_room = None
     for row in data:
@@ -205,19 +232,27 @@ def generate_pdf(property_name, unit_name, inspection_type, data, photos_dict):
 
         if room != current_room:
             current_room = room
-            pdf.set_font("Arial", "B", 12)
             pdf.ln(4)
+            pdf.set_font("Helvetica", "B", 13)
+            pdf.set_text_color(30, 30, 30)
             pdf.cell(0, 8, room, ln=True)
-            pdf.set_font("Arial", "", 11)
+            pdf.set_draw_color(210, 210, 210)
+            pdf.set_line_width(0.3)
+            pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+            pdf.ln(2)
+            pdf.set_font("Helvetica", "", 11)
+            pdf.set_text_color(0, 0, 0)
 
-        pdf.cell(0, 6, f"- {item}: {condition}", ln=True)
+        pdf.set_font("Helvetica", "B", 11)
+        pdf.cell(0, 6, f"{item} — {condition}", ln=True)
         if note:
-            pdf.set_font("Arial", "I", 10)
-            pdf.multi_cell(0, 5, f"  Note: {note}")
-            pdf.set_font("Arial", "", 11)
+            pdf.set_font("Helvetica", "", 10)
+            pdf.multi_cell(0, 5, note)
+        pdf.ln(2)
 
     pdf.add_page()
-    pdf.set_font("Arial", "B", 12)
+    pdf.set_font("Helvetica", "B", 13)
+    pdf.set_text_color(30, 30, 30)
     pdf.cell(0, 8, "Photos", ln=True)
     pdf.ln(4)
 
@@ -225,9 +260,16 @@ def generate_pdf(property_name, unit_name, inspection_type, data, photos_dict):
         room, item = key
         if not files:
             continue
-        pdf.set_font("Arial", "B", 11)
-        pdf.cell(0, 6, f"{room} - {item}", ln=True)
-        pdf.set_font("Arial", "", 10)
+
+        pdf.set_font("Helvetica", "B", 11)
+        pdf.set_text_color(40, 40, 40)
+        pdf.cell(0, 6, f"{room} — {item}", ln=True)
+        pdf.ln(2)
+
+        x_start = 10
+        y_start = pdf.get_y()
+        max_height_in_row = 0
+        img_width = 60
 
         for idx, f in enumerate(files):
             try:
@@ -241,8 +283,17 @@ def generate_pdf(property_name, unit_name, inspection_type, data, photos_dict):
                 with open(temp_path, "wb") as temp_img:
                     temp_img.write(img_buffer.getvalue())
 
-                pdf.image(temp_path, w=80)
-                pdf.ln(2)
+                if x_start + img_width > 190:
+                    x_start = 10
+                    y_start += max_height_in_row + 4
+                    max_height_in_row = 0
+
+                pdf.image(temp_path, x=x_start, y=y_start, w=img_width)
+                img_height = img.size[1] * (img_width / img.size[0])
+                if img_height > max_height_in_row:
+                    max_height_in_row = img_height
+
+                x_start += img_width + 4
 
                 try:
                     os.remove(temp_path)
@@ -251,7 +302,7 @@ def generate_pdf(property_name, unit_name, inspection_type, data, photos_dict):
             except Exception:
                 continue
 
-        pdf.ln(4)
+        pdf.ln(max_height_in_row + 6)
 
     return pdf.output(dest="S").encode("latin-1")
 
@@ -262,6 +313,9 @@ if "inspection_data" not in st.session_state:
 
 if "photos" not in st.session_state:
     st.session_state.photos = {}
+
+if "ai_results" not in st.session_state:
+    st.session_state.ai_results = {}
 
 # ---------- SIDEBAR ----------
 
@@ -284,6 +338,7 @@ st.sidebar.markdown("---")
 if st.sidebar.button("Reset Inspection Data"):
     st.session_state.inspection_data = {}
     st.session_state.photos = {}
+    st.session_state.ai_results = {}
     st.sidebar.success("Inspection data cleared.")
 
 # ---------- MAIN UI ----------
@@ -310,7 +365,6 @@ for item in items:
 
     cols = st.columns([1, 2])
 
-    # LEFT SIDE
     with cols[0]:
         condition_key = f"{key_prefix}_condition"
         note_key = f"{key_prefix}_note"
@@ -329,7 +383,8 @@ for item in items:
 
         note_default = st.session_state.inspection_data.get(
             (selected_room, item), {}
-        ).get("note", "")
+        ).get("note", ""
+        )
 
         note = st.text_area(
             "Notes",
@@ -338,7 +393,6 @@ for item in items:
             placeholder=f"Add any notes about the {item.lower()}...",
         )
 
-    # RIGHT SIDE
     with cols[1]:
         st.write("**Photos**")
 
@@ -353,39 +407,39 @@ for item in items:
         if uploaded_photos:
             st.session_state.photos[photos_key] = uploaded_photos
 
+            ai_results = []
+            with st.spinner("Analyzing photos with Azure Vision..."):
+                for p in uploaded_photos:
+                    try:
+                        ai_condition, ai_note = analyze_photo_condition_only(p, item)
+                        ai_results.append((ai_condition, ai_note))
+                    except Exception as e:
+                        st.warning(f"Azure analysis failed for one photo: {e}")
+
+            if ai_results:
+                final_condition, combined_note = merge_conditions_and_notes(ai_results, item)
+                st.session_state.ai_results[photos_key] = {
+                    "condition": final_condition,
+                    "note": combined_note,
+                }
+
+                st.success(f"AI Suggested Condition: {final_condition}")
+                st.info("AI Suggested Notes:\n" + combined_note)
+
+                if st.button(
+                    f"Use AI result for {item}", key=f"{key_prefix}_apply_ai"
+                ):
+                    st.session_state[condition_key] = final_condition
+                    st.session_state[note_key] = combined_note
+                    st.session_state.inspection_data[(selected_room, item)] = {
+                        "condition": final_condition,
+                        "note": combined_note,
+                    }
+                    st.success("AI result applied to this item.")
+
         if photos_key in st.session_state.photos:
             for p in st.session_state.photos[photos_key]:
                 st.image(p, caption=f"{item} photo", use_column_width=True)
-
-        st.markdown("**AI Photo Analysis (Azure Vision)**")
-        ai_photo = st.file_uploader(
-            f"Upload a photo of the {item} for analysis",
-            type=["jpg", "jpeg", "png"],
-            key=f"{key_prefix}_ai_photo",
-        )
-
-        if ai_photo and st.button(
-            f"Analyze {item} Photo", key=f"{key_prefix}_analyze"
-        ):
-            try:
-                with st.spinner("Analyzing photo with Azure Vision..."):
-                    ai_condition, ai_note = analyze_photo_condition_only(ai_photo, item)
-
-                st.success(f"Suggested Condition: {ai_condition}")
-                st.info(f"Suggested Note: {ai_note}")
-
-                if st.button(
-                    f"Use Azure result for {item}", key=f"{key_prefix}_apply_ai"
-                ):
-                    st.session_state[condition_key] = ai_condition
-                    st.session_state[note_key] = ai_note
-                    st.session_state.inspection_data[(selected_room, item)] = {
-                        "condition": ai_condition,
-                        "note": ai_note,
-                    }
-                    st.success("Azure result applied.")
-            except Exception as e:
-                st.error(f"Azure analysis failed: {e}")
 
     st.session_state.inspection_data[(selected_room, item)] = {
         "condition": st.session_state.get(condition_key, "Good"),
@@ -426,3 +480,7 @@ if st.button("Generate PDF Report"):
         file_name=f"inspection_{property_name}_{unit_name}.pdf",
         mime="application/pdf",
     )
+
+# ------------------------------
+# END OF FILE
+# ------------------------------
