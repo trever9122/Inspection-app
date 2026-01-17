@@ -1,6 +1,7 @@
-# ------------------------------
-# inspection_app.py (STABLE BUILD WITH AUTO‑APPLY AI)
-# ------------------------------
+# ---------------------------------------------------------
+# AI Inspection App — Clean Modern UI + Auto‑Apply AI
+# Full Rewrite (Part 1 of 2)
+# ---------------------------------------------------------
 
 import streamlit as st
 from PIL import Image
@@ -11,9 +12,14 @@ import datetime
 import os
 import requests
 
-# ---------- CONFIG ----------
+# ---------------------------------------------------------
+# CONFIG
+# ---------------------------------------------------------
 
-st.set_page_config(page_title="AI Inspection App (Azure Vision)", layout="wide")
+st.set_page_config(
+    page_title="AI Inspection App",
+    layout="wide",
+)
 
 AZURE_VISION_ENDPOINT = st.secrets["AZURE_VISION_ENDPOINT"].rstrip("/")
 AZURE_VISION_KEY = st.secrets["AZURE_VISION_KEY"]
@@ -23,7 +29,25 @@ VISION_ANALYZE_URL = (
     "?api-version=2023-10-01&features=tags,caption"
 )
 
-# ---------- DATA MODELS ----------
+# ---------------------------------------------------------
+# SAFE WIDGET KEY SANITIZER
+# ---------------------------------------------------------
+
+def safe_key(text):
+    return (
+        str(text)
+        .replace(" ", "_")
+        .replace("/", "_")
+        .replace("(", "")
+        .replace(")", "")
+        .replace("-", "_")
+        .replace(".", "_")
+        .replace(",", "_")
+    )
+
+# ---------------------------------------------------------
+# INSPECTION TEMPLATES
+# ---------------------------------------------------------
 
 DEFAULT_TEMPLATES = {
     "Move-in / Move-out": [
@@ -61,7 +85,9 @@ DEFAULT_TEMPLATES = {
 
 CONDITION_OPTIONS = ["Good", "Fair", "Poor"]
 
-# ---------- STRUCTURAL TAG FILTERING ----------
+# ---------------------------------------------------------
+# TAG FILTERING
+# ---------------------------------------------------------
 
 STRUCTURAL_NEGATIVE_TAGS = {
     "crack", "cracked", "damage", "damaged", "broken", "stain", "stained",
@@ -86,12 +112,14 @@ IGNORED_TAGS = {
     "pillowcase", "sheet", "towel", "basket", "bin", "container"
 }
 
-# ---------- TEXT CLEANING FOR PDF (ASCII ONLY) ----------
+# ---------------------------------------------------------
+# PDF TEXT CLEANER
+# ---------------------------------------------------------
 
 def clean_text(text):
     if not text:
         return ""
-    safe = (
+    return (
         str(text)
         .replace("•", "-")
         .replace("—", "-")
@@ -99,16 +127,17 @@ def clean_text(text):
         .encode("latin-1", "replace")
         .decode("latin-1")
     )
-    return safe
 
-# ---------- AZURE VISION ANALYSIS ----------
+# ---------------------------------------------------------
+# AZURE VISION ANALYSIS
+# ---------------------------------------------------------
 
 def analyze_with_azure(image_file):
     img = Image.open(image_file).convert("RGB")
     img.thumbnail((1024, 1024))
-    buffered = io.BytesIO()
-    img.save(buffered, format="JPEG")
-    img_bytes = buffered.getvalue()
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG")
+    img_bytes = buf.getvalue()
 
     headers = {
         "Ocp-Apim-Subscription-Key": AZURE_VISION_KEY,
@@ -127,36 +156,21 @@ def analyze_with_azure(image_file):
     tags = []
     if "tagsResult" in result and "values" in result["tagsResult"]:
         for t in result["tagsResult"]["values"]:
-            name = t.get("name", "").lower()
-            conf = t.get("confidence", 0.0)
-            tags.append((name, conf))
+            tags.append((t.get("name", "").lower(), t.get("confidence", 0.0)))
 
-    caption_text = result.get("captionResult", {}).get("text", "")
+    caption = result.get("captionResult", {}).get("text", "")
 
-    return tags, caption_text
+    return tags, caption
 
-# ---------- CONDITION + NOTE LOGIC ----------
+# ---------------------------------------------------------
+# CONDITION + NOTE LOGIC
+# ---------------------------------------------------------
 
-def derive_condition_and_note(tags, caption_text, item_name):
-    structural_tags = []
-    for name, conf in tags:
-        if name in IGNORED_TAGS:
-            continue
-        structural_tags.append((name, conf))
+def derive_condition_and_note(tags, caption, item_name):
+    structural = [(name, conf) for name, conf in tags if name not in IGNORED_TAGS]
 
-    has_severe = False
-    has_minor = False
-
-    negative_hits = []
-    minor_hits = []
-
-    for name, conf in structural_tags:
-        if name in STRUCTURAL_NEGATIVE_TAGS:
-            has_severe = True
-            negative_hits.append(name)
-        elif name in STRUCTURAL_MINOR_TAGS:
-            has_minor = True
-            minor_hits.append(name)
+    has_severe = any(name in STRUCTURAL_NEGATIVE_TAGS for name, _ in structural)
+    has_minor = any(name in STRUCTURAL_MINOR_TAGS for name, _ in structural)
 
     if has_severe:
         condition = "Poor"
@@ -168,56 +182,43 @@ def derive_condition_and_note(tags, caption_text, item_name):
     if condition == "Good":
         note = f"{item_name} appears clean and well-maintained with no concerns noted."
     elif condition == "Fair":
-        if minor_hits:
-            note = (
-                f"{item_name} shows light wear, including {', '.join(set(minor_hits))}. "
-                "Overall condition is acceptable."
-            )
-        else:
-            note = f"{item_name} shows general wear consistent with normal use."
+        note = f"{item_name} shows light wear consistent with normal use."
     else:
-        if negative_hits:
-            note = (
-                f"{item_name} shows visible damage, including {', '.join(set(negative_hits))}. "
-                "Repairs should be scheduled."
-            )
-        else:
-            note = f"{item_name} shows significant deterioration and may require repair."
+        note = f"{item_name} shows visible damage and may require repair."
 
     return condition, note
 
 def analyze_photo_condition_only(image_file, item_name):
-    tags, caption_text = analyze_with_azure(image_file)
-    return derive_condition_and_note(tags, caption_text, item_name)
+    tags, caption = analyze_with_azure(image_file)
+    return derive_condition_and_note(tags, caption, item_name)
 
-# ---------- CONDITION MERGING (MULTI-PHOTO) ----------
+# ---------------------------------------------------------
+# MERGE MULTIPLE PHOTOS
+# ---------------------------------------------------------
 
 def merge_conditions_and_notes(results, item_name):
     if not results:
-        return "Good", ""
+        return "Good", f"- {item_name} appears clean and well-maintained."
 
-    condition_rank = {"Good": 1, "Fair": 2, "Poor": 3}
-    worst_condition = "Good"
+    rank = {"Good": 1, "Fair": 2, "Poor": 3}
+    worst = "Good"
     notes = []
 
     for cond, note in results:
-        if condition_rank[cond] > condition_rank[worst_condition]:
-            worst_condition = cond
-        if note and note not in notes:
+        if rank[cond] > rank[worst]:
+            worst = cond
+        if note not in notes:
             notes.append(note)
 
-    if notes:
-        bullet_notes = "\n".join([f"- {n}" for n in notes])
-    else:
-        if worst_condition == "Good":
-            bullet_notes = f"- {item_name} appears clean and well-maintained."
-        elif worst_condition == "Fair":
-            bullet_notes = f"- {item_name} shows general wear consistent with normal use."
-        else:
-            bullet_notes = f"- {item_name} shows visible damage and may require repair."
+    combined = "\n".join(f"- {n}" for n in notes)
+    return worst, combined
+    # ---------------------------------------------------------
+# PART 2 — Full Rewritten App (Bottom Half)
+# ---------------------------------------------------------
 
-    return worst_condition, bullet_notes
-    # ---------- PDF GENERATION ----------
+# ---------------------------------------------------------
+# PDF GENERATION
+# ---------------------------------------------------------
 
 class InspectionPDF(FPDF):
     def header(self):
@@ -281,7 +282,6 @@ def generate_pdf(property_name, unit_name, inspection_type, data, photos_dict):
             pdf.multi_cell(0, 5, clean_text(note))
         pdf.ln(2)
 
-    # Photos page
     pdf.add_page()
     pdf.set_font("Helvetica", "B", 13)
     pdf.set_text_color(30, 30, 30)
@@ -311,7 +311,7 @@ def generate_pdf(property_name, unit_name, inspection_type, data, photos_dict):
                 img.save(img_buffer, format="JPEG")
                 img_buffer.seek(0)
 
-                temp_path = f"temp_{room}_{item}_{idx}.jpg"
+                temp_path = f"temp_{safe_key(room)}_{safe_key(item)}_{idx}.jpg"
                 with open(temp_path, "wb") as temp_img:
                     temp_img.write(img_buffer.getvalue())
 
@@ -339,7 +339,9 @@ def generate_pdf(property_name, unit_name, inspection_type, data, photos_dict):
     return pdf.output(dest="S").encode("latin-1", "replace")
 
 
-# ---------- SESSION STATE ----------
+# ---------------------------------------------------------
+# SESSION STATE
+# ---------------------------------------------------------
 
 if "inspection_data" not in st.session_state:
     st.session_state.inspection_data = {}
@@ -351,7 +353,9 @@ if "ai_results" not in st.session_state:
     st.session_state.ai_results = {}
 
 
-# ---------- SIDEBAR ----------
+# ---------------------------------------------------------
+# SIDEBAR
+# ---------------------------------------------------------
 
 st.sidebar.title("Inspection Setup")
 
@@ -376,9 +380,11 @@ if st.sidebar.button("Reset Inspection Data"):
     st.sidebar.success("Inspection data cleared.")
 
 
-# ---------- MAIN UI ----------
+# ---------------------------------------------------------
+# MAIN HEADER
+# ---------------------------------------------------------
 
-st.title("AI-Powered Inspection App (Azure Vision — Auto‑Apply AI Notes)")
+st.title("AI-Powered Inspection App")
 
 st.markdown(
     f"**Property:** {property_name} &nbsp;&nbsp; | &nbsp;&nbsp; "
@@ -390,185 +396,105 @@ st.markdown("---")
 
 current_room_struct = next(r for r in template_rooms if r["room"] == selected_room)
 items = current_room_struct["items"]
-# ---------- ITEM LOOP (ERROR‑FREE, AUTO‑APPLY AI) ----------
+
+st.header(selected_room)
+
+
+# ---------------------------------------------------------
+# ITEM LOOP — CLEAN + MODERN + AUTO-APPLY AI
+# ---------------------------------------------------------
 
 for item in items:
-    key_prefix = f"{selected_room}_{item}"
+    key_prefix = safe_key(f"{selected_room}_{item}")
     photos_key = (selected_room, item)
 
-    st.subheader(item)
+    st.markdown(f"### {item}")
 
-    cols = st.columns([1, 2])
+    container = st.container()
+    with container:
+        col_left, col_right = st.columns([1.1, 1.4], gap="large")
 
-    # -------------------------
-    # LEFT COLUMN: CONDITION + NOTES
-    # -------------------------
-    with cols[0]:
+        # LEFT: CONDITION + NOTES
+        with col_left:
+            condition_widget_key = safe_key(f"{key_prefix}_condition")
+            note_widget_key = safe_key(f"{key_prefix}_note")
 
-        # Load saved values
-        saved = st.session_state.inspection_data.get((selected_room, item), {})
+            saved = st.session_state.inspection_data.get((selected_room, item), {})
+            ai = st.session_state.ai_results.get(photos_key, {})
 
-        # If AI results exist, use them as defaults
-        ai = st.session_state.ai_results.get(photos_key, {})
+            default_condition = ai.get("condition", saved.get("condition", "Good"))
+            default_note = ai.get("note", saved.get("note", ""))
 
-        default_condition = ai.get("condition", saved.get("condition", "Good"))
-        default_note = ai.get("note", saved.get("note", ""))
+            with st.container(border=True):
+                st.markdown("**Condition**")
+                condition = st.radio(
+                    "",
+                    CONDITION_OPTIONS,
+                    index=CONDITION_OPTIONS.index(default_condition),
+                    key=condition_widget_key,
+                    horizontal=True,
+                )
 
-        # Render widgets using defaults (NO writing to widget keys)
-        condition = st.radio(
-            "Condition",
-            CONDITION_OPTIONS,
-            index=CONDITION_OPTIONS.index(default_condition),
-            key=f"{key_prefix}_condition",
-            horizontal=True,
-        )
+            with st.container(border=True):
+                st.markdown("**Notes**")
+                note = st.text_area(
+                    "",
+                    value=default_note,
+                    key=note_widget_key,
+                    placeholder=f"Add any notes about the {item.lower()}...",
+                    height=120,
+                )
 
-        note = st.text_area(
-            "Notes",
-            value=default_note,
-            key=f"{key_prefix}_note",
-            placeholder=f"Add any notes about the {item.lower()}...",
-        )
+        # RIGHT: PHOTOS + AI
+        with col_right:
+            with st.container(border=True):
+                st.markdown("**Photos**")
 
-    # -------------------------
-    # RIGHT COLUMN: PHOTOS + AI
-    # -------------------------
-    with cols[1]:
-        st.write("**Photos**")
+                photos_widget_key = safe_key(f"{key_prefix}_photos")
 
-        uploaded_photos = st.file_uploader(
-            f"Upload photos for {item}",
-            type=["jpg", "jpeg", "png"],
-            accept_multiple_files=True,
-            key=f"{key_prefix}_photos",
-        )
+                uploaded_photos = st.file_uploader(
+                    f"Upload photos for {item}",
+                    type=["jpg", "jpeg", "png"],
+                    accept_multiple_files=True,
+                    key=photos_widget_key,
+                )
 
-        if uploaded_photos:
-            st.session_state.photos[photos_key] = uploaded_photos
+                if uploaded_photos:
+                    st.session_state.photos[photos_key] = uploaded_photos
 
-            ai_results = []
-            with st.spinner("Analyzing photos with Azure Vision..."):
-                for p in uploaded_photos:
-                    try:
-                        ai_condition, ai_note = analyze_photo_condition_only(p, item)
-                        ai_results.append((ai_condition, ai_note))
-                    except Exception as e:
-                        st.warning(f"Azure analysis failed: {e}")
+                    ai_results = []
+                    with st.spinner("Analyzing photos with Azure Vision..."):
+                        for p in uploaded_photos:
+                            try:
+                                ai_condition, ai_note = analyze_photo_condition_only(p, item)
+                                ai_results.append((ai_condition, ai_note))
+                            except Exception as e:
+                                st.warning(f"Azure analysis failed: {e}")
 
-            if ai_results:
-                final_condition, combined_note = merge_conditions_and_notes(ai_results, item)
+                    if ai_results:
+                        final_condition, combined_note = merge_conditions_and_notes(ai_results, item)
 
-                # Save AI results (NOT widget keys)
-                st.session_state.ai_results[photos_key] = {
-                    "condition": final_condition,
-                    "note": combined_note,
-                }
+                        st.session_state.ai_results[photos_key] = {
+                            "condition": final_condition,
+                            "note": combined_note,
+                        }
 
-                st.success(f"AI Suggested Condition: {final_condition}")
-                st.info("AI Suggested Notes:\n" + combined_note)
-                st.success("AI applied automatically. You can edit the note on the left.")
+                        st.success(f"AI Suggested Condition: {final_condition}")
+                        st.info("AI Suggested Notes:\n" + combined_note)
+                        st.caption("AI has been applied as the default. You can still edit the fields on the left.")
 
-        # Show thumbnails
-        if photos_key in st.session_state.photos:
-            for p in st.session_state.photos[photos_key]:
-                st.image(p, caption=f"{item} photo", use_column_width=True)
+                if photos_key in st.session_state.photos:
+                    photo_files = st.session_state.photos[photos_key]
+                    if photo_files:
+                        cols_photos = st.columns(3)
+                        for idx, p in enumerate(photo_files):
+                            with cols_photos[idx % 3]:
+                                st.image(p, caption=f"{item} photo", use_column_width=True)
 
-    # -------------------------
-    # SAVE FINAL VALUES
-    # -------------------------
     st.session_state.inspection_data[(selected_room, item)] = {
         "condition": condition,
         "note": note,
     }
-st.header(selected_room)
-
-
-# ---------- ITEM LOOP (AUTO‑APPLY AI) ----------
-
-for item in items:
-    key_prefix = f"{selected_room}_{item}"
-
-    st.subheader(item)
-
-    cols = st.columns([1, 2])
-
-    # LEFT COLUMN
-    with cols[0]:
-        condition_key = f"{key_prefix}_condition"
-        note_key = f"{key_prefix}_note"
-
-        saved_data = st.session_state.inspection_data.get((selected_room, item), {})
-        current_condition = saved_data.get("condition", "Good")
-        current_note = saved_data.get("note", "")
-
-        condition = st.radio(
-            "Condition",
-            CONDITION_OPTIONS,
-            index=CONDITION_OPTIONS.index(current_condition),
-            key=condition_key,
-            horizontal=True,
-        )
-
-        note = st.text_area(
-            "Notes",
-            value=current_note,
-            key=note_key,
-            placeholder=f"Add any notes about the {item.lower()}...",
-        )
-
-    # RIGHT COLUMN
-    with cols[1]:
-        st.write("**Photos**")
-
-        photos_key = (selected_room, item)
-
-        uploaded_photos = st.file_uploader(
-            f"Upload photos for {item}",
-            type=["jpg", "jpeg", "png"],
-            accept_multiple_files=True,
-            key=f"{key_prefix}_photos",
-        )
-
-        if uploaded_photos:
-            st.session_state.photos[photos_key] = uploaded_photos
-
-            ai_results = []
-            with st.spinner("Analyzing photos with Azure Vision..."):
-                for p in uploaded_photos:
-                    try:
-                        ai_condition, ai_note = analyze_photo_condition_only(p, item)
-                        ai_results.append((ai_condition, ai_note))
-                    except Exception as e:
-                        st.warning(f"Azure analysis failed for one photo: {e}")
-
-            if ai_results:
-                final_condition, combined_note = merge_conditions_and_notes(ai_results, item)
-
-                st.session_state.ai_results[photos_key] = {
-                    "condition": final_condition,
-                    "note": combined_note,
-                }
-
-                # AUTO‑APPLY AI RESULTS
-                st.session_state[condition_key] = final_condition
-                st.session_state[note_key] = combined_note
-
-                st.success(f"AI Suggested Condition: {final_condition}")
-                st.info("AI Suggested Notes:\n" + combined_note)
-                st.success("AI result applied automatically. You can edit the note below.")
-
-        if photos_key in st.session_state.photos:
-            for p in st.session_state.photos[photos_key]:
-                st.image(p, caption=f"{item} photo", use_column_width=True)
-
-    # ALWAYS SAVE LATEST VALUES
-    st.session_state.inspection_data[(selected_room, item)] = {
-        "condition": st.session_state.get(condition_key, "Good"),
-        "note": st.session_state.get(note_key, ""),
-    }
-
-
-# ---------- SUMMARY + PDF ----------
 
 st.markdown("---")
 st.header("Inspection Summary")
@@ -602,7 +528,6 @@ if st.button("Generate PDF Report"):
         mime="application/pdf",
     )
 
-# ------------------------------
+# ---------------------------------------------------------
 # END OF FILE
-# ------------------------------
-
+# ---------------------------------------------------------
