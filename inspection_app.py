@@ -32,10 +32,30 @@ DEFAULT_TEMPLATES = {
         {"room": "Bedroom", "items": ["Walls", "Flooring", "Closet", "Windows"]},
         {"room": "Bathroom", "items": ["Vanity", "Toilet", "Shower/Tub", "Flooring"]},
     ],
+
     "Annual Inspection": [
         {"room": "Exterior", "items": ["Siding", "Roof (visible)", "Windows", "Doors"]},
         {"room": "Mechanical", "items": ["Furnace", "Water Heater", "Electrical Panel"]},
         {"room": "Interior Common", "items": ["Hallways", "Stairs", "Lighting"]},
+    ],
+
+    "Semi-Annual Inspection": [
+        {"room": "Exterior", "items": ["Siding", "Foundation (visible)", "Windows", "Doors"]},
+        {"room": "Mechanical", "items": ["Furnace", "Water Heater", "HVAC Filters"]},
+        {"room": "Interior", "items": ["Walls", "Flooring", "Smoke Alarms", "CO Detectors"]},
+    ],
+
+    "Empty Unit Inspection": [
+        {"room": "General Interior", "items": ["Walls", "Flooring", "Windows", "Doors"]},
+        {"room": "Kitchen", "items": ["Counters", "Cabinets", "Appliances", "Sink"]},
+        {"room": "Bathroom", "items": ["Vanity", "Toilet", "Shower/Tub", "Flooring"]},
+        {"room": "Safety", "items": ["Smoke Alarms", "CO Detectors", "Locks"]},
+    ],
+
+    "Exterior / Yard Inspection": [
+        {"room": "Exterior Structure", "items": ["Siding", "Foundation (visible)", "Roof (visible)", "Windows"]},
+        {"room": "Yard", "items": ["Grass", "Fencing", "Walkways", "Driveway"]},
+        {"room": "Outbuildings", "items": ["Shed Exterior", "Garage Exterior", "Doors"]},
     ],
 }
 
@@ -484,3 +504,4 @@ if st.button("Generate PDF Report"):
 # ------------------------------
 # END OF FILE
 # ------------------------------
+
