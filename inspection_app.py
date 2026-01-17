@@ -436,3 +436,29 @@ if st.button("Generate PDF Report"):
         file_name=f"inspection_{property_name}_{unit_name}.pdf",
         mime="application/pdf",
     )
+# Words that should NEVER appear in a condition report (objects, belongings, décor)
+NONSTRUCTURAL_OBJECTS = {
+    "toy", "snake", "guitar", "sofa", "chair", "table", "bed", "blanket", "pillow",
+    "clothes", "clothing", "box", "boxes", "bedding", "furniture", "sofa", "chair",
+    "personal", "items", "decor", "decoration", "toys", "laptop", "phone", "bag",
+    "bags", "shoes", "books", "instrument", "monitor", "tv", "television", "dresser",
+    "couch", "lamp", "mirror", "frame", "plant", "plants", "bottle", "bottles",
+    "laundry", "stuffed", "animal", "doll", "figurine", "poster", "picture",
+    "painting", "rug", "carpet", "mattress", "pillowcase", "sheet", "blanket",
+    "towel", "basket", "bin", "container", "toy", "snake"
+}
+
+def clean_caption_for_condition(caption):
+    words = caption.split()
+    cleaned = []
+    for w in words:
+        stripped = w.lower().strip(".,")
+        if stripped not in NONSTRUCTURAL_OBJECTS:
+            cleaned.append(w)
+    cleaned_caption = " ".join(cleaned).strip()
+
+    # If the caption becomes empty, replace with a neutral structural phrase
+    if not cleaned_caption:
+        cleaned_caption = "the surface and surrounding area"
+
+    return cleaned_caption
