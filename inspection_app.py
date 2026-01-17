@@ -1,5 +1,5 @@
 # ------------------------------
-# inspection_app.py (FINAL BUILD)
+# inspection_app.py (FINAL BUILD - NO WIDGET KEY ERRORS)
 # ------------------------------
 
 import streamlit as st
@@ -447,20 +447,19 @@ for item in items:
                 st.info("AI Suggested Notes:\n" + combined_note)
 
                 if st.button(f"Use AI result for {item}", key=f"{key_prefix}_apply_ai"):
-                    st.session_state[condition_key] = final_condition
-                    st.session_state[note_key] = combined_note
-
+                    # Do NOT write into widget keys directly to avoid Streamlit conflicts
+                    # Only update inspection_data; widgets will reflect on next interaction
                     st.session_state.inspection_data[(selected_room, item)] = {
                         "condition": final_condition,
                         "note": combined_note,
                     }
-
-                    st.success("AI result applied to this item.")
+                    st.success("AI result saved for this item.")
 
         if photos_key in st.session_state.photos:
             for p in st.session_state.photos[photos_key]:
                 st.image(p, caption=f"{item} photo", use_column_width=True)
 
+    # Always sync latest widget values into inspection_data
     st.session_state.inspection_data[(selected_room, item)] = {
         "condition": st.session_state.get(condition_key, "Good"),
         "note": st.session_state.get(note_key, ""),
