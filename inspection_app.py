@@ -1,311 +1,53 @@
 import streamlit as st
-import json
-from datetime import datetime
-from pathlib import Path
-from fpdf import FPDF
-from st_dragdrop_list import ST_DragDropList  # pip install streamlit-dragdroplist
-
-# -------------------------------------------------
-# CONFIG
-# -------------------------------------------------
-st.set_page_config(page_title="Property Inspection App", layout="wide")
-
-INSPECTION_TYPES = [
-    "Semi-Annual Inspection",
-    "Empty Unit Inspection",
-    "Move-In Inspection",
-    "Move-Out Inspection",
-    "Yard/Exterior Inspection",
-]
-
-BASE_ROOMS = [
-    "Bedroom",
-    "Hall",
-    "Kitchen",
-    "Bathroom",
-    "Basement",
-    "Living Room",
-    "Dining Room",
-    "Yard / Exterior",
-]
-
-ROOM_ICONS = {
-    "Bedroom": "🛏️",
-    "Hall": "🚪",
-    "Kitchen": "🍽️",
-    "Bathroom": "🚿",
-    "Basement": "🏚️",
-    "Living Room": "🛋️",
-    "Dining Room": "🍴",
-    "Yard / Exterior": "🌳",
-}
-
-CONDITION_OPTIONS = ["Good", "Fair", "Poor", "Bad"]
-
-# Cloud‑sync friendly save folder (OneDrive by default)
-SAVE_DIR = Path.home() / "OneDrive" / "Inspections"
-SAVE_DIR.mkdir(parents=True, exist_ok=True)
-
-
-# -------------------------------------------------
-# SESSION STATE
-# -------------------------------------------------
-if "custom_rooms" not in st.session_state:
-    st.session_state.custom_rooms = []
-
-if "units" not in st.session_state:
-    st.session_state.units = []
-
-if "current_unit" not in st.session_state:
-    st.session_state.current_unit = None
-
-
-# -------------------------------------------------
-# HELPERS
-# -------------------------------------------------
-def room_key(room_name: str) -> str:
-    return room_name.lower().replace(" ", "_").replace("/", "_")
-
-
-def suggest_notes(room, condition):
-    base = room.lower()
-    if condition == "Good":
-        return f"The {base} appears to be in good working order with no visible defects."
-    if condition == "Fair":
-        return f"The {base} shows minor wear consistent with normal use. No urgent repairs required."
-    if condition == "Poor":
-        return f"The {base} has noticeable issues that may require maintenance attention."
-    if condition == "Bad":
-        return f"The {base} contains significant deficiencies that require prompt repair or replacement."
-    return ""
-
-
-def save_report(report: dict) -> Path:
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    unit_part = report['unit_number'].replace(" ", "_") if report['unit_number'] else "unit"
-    filename = f"{report['property_name'].replace(' ', '_')}_{unit_part}_{timestamp}.json"
-    filepath = SAVE_DIR / filename
-    with open(filepath, "w", encoding="utf-8") as f:
-        json.dump(report, f, indent=2, default=str)
-    return filepath
-
-
-def generate_pdf(report: dict) -> Path:
-    pdf = FPDF()
-    pdf.set_auto_page_break(auto=True, margin=15)
-    pdf.add_page()
-
-    pdf.set_font("Arial", "B", 16)
-    pdf.cell(0, 10, "Property Inspection Report", ln=True)
-
-    pdf.set_font("Arial", size=12)
-    pdf.ln(5)
-
-    pdf.cell(0, 8, f"Inspection Type: {report['inspection_type']}", ln=True)
-    pdf.cell(0, 8, f"Property: {report['property_name']}", ln=True)
-    pdf.cell(0, 8, f"Unit: {report['unit_number']}", ln=True)
-    pdf.cell(0, 8, f"Inspector: {report['inspector_name']}", ln=True)
-    pdf.cell(0, 8, f"Date: {report['inspection_date']}", ln=True)
-
-    pdf.ln(8)
-    pdf.set_font("Arial", "B", 14)
-    pdf.cell(0, 8, "General Notes:", ln=True)
-    pdf.set_font("Arial", size=12)
-    pdf.multi_cell(0, 6, report.get("general_notes", "") or "None")
-
-    pdf.ln(6)
-    pdf.set_font("Arial", "B", 14)
-    pdf.cell(0, 8, "Room Details:", ln=True)
-
-    for room, data in report["rooms"].items():
-        pdf.ln(4)
-        pdf.set_font("Arial", "B", 12)
-        pdf.cell(0, 8, f"{room}", ln=True)
-
-        pdf.set_font("Arial", size=12)
-        pdf.cell(0, 6, f"Condition: {data['condition']}", ln=True)
-        pdf.multi_cell(0, 6, f"Notes: {data['notes'] or 'None'}")
-
-    pdf_path = SAVE_DIR / "inspection_report.pdf"
-    pdf.output(str(pdf_path))
-    return pdf_path
-
-
-# -------------------------------------------------
-# SIDEBAR: SETUP
-# -------------------------------------------------
-st.sidebar.title("Inspection Setup")
-
-inspection_type = st.sidebar.selectbox("Inspection Type", INSPECTION_TYPES)
-
-property_name = st.sidebar.text_input("Property Name / Address", "")
-
-# Multi-unit support
-st.sidebar.markdown("### Units in this Property")
-new_unit = st.sidebar.text_input("Add Unit (e.g., 101, BSMT)")
-if st.sidebar.button("Add Unit"):
-    if new_unit.strip() and new_unit.strip() not in st.session_state.units:
-        st.session_state.units.append(new_unit.strip())
-        st.session_state.current_unit = new_unit.strip()
-        st.sidebar.success(f"Added unit: {new_unit}")
-    else:
-        st.sidebar.error("Unit name must be unique and not empty.")
-
-if st.session_state.units:
-    st.session_state.current_unit = st.sidebar.selectbox(
-        "Select Active Unit",
-        st.session_state.units,
-        index=st.session_state.units.index(st.session_state.current_unit)
-        if st.session_state.current_unit in st.session_state.units
-        else 0,
-    )
-unit_number = st.session_state.current_unit or ""
-
-inspector_name = st.sidebar.text_input("Inspector Name", "")
-inspection_date = st.sidebar.date_input("Inspection Date", datetime.today())
-
-# Custom rooms
-st.sidebar.markdown("### Add Custom Room")
-custom_room = st.sidebar.text_input("Custom Room Name")
-if st.sidebar.button("Add Room"):
-    if custom_room.strip():
-        st.session_state.custom_rooms.append(custom_room.strip())
-        st.sidebar.success(f"Added room: {custom_room}")
-    else:
-        st.sidebar.error("Room name cannot be empty.")
-
-# Rooms + drag-and-drop ordering
-st.sidebar.markdown("### Rooms / Areas to Inspect")
-
-all_rooms = BASE_ROOMS + st.session_state.custom_rooms
-room_data_for_drag = [
-    {"id": f"room_{i}", "order": i, "name": r} for i, r in enumerate(all_rooms)
-]
-
-dragged_rooms = ST_DragDropList(room_data_for_drag, key="room_order")
-ordered_rooms = [item["name"] for item in dragged_rooms]
-
-selected_rooms = []
-for r in ordered_rooms:
-    if st.sidebar.checkbox(r, value=True, key=f"chk_{r}"):
-        selected_rooms.append(r)
-
-st.sidebar.info("Drag rooms to reorder. Check to include in this inspection.")
-
-
-# -------------------------------------------------
-# MAIN LAYOUT
-# -------------------------------------------------
-st.title("Property Inspection Workspace")
-
-st.write(
-    f"**Inspection Type:** {inspection_type}  \n"
-    f"**Property:** {property_name or 'N/A'}  \n"
-    f"**Active Unit:** {unit_number or 'N/A'}  \n"
-    f"**Inspector:** {inspector_name or 'N/A'}  \n"
-    f"**Date:** {inspection_date}"
-)
-
-st.markdown("---")
-
-if not property_name:
-    st.warning("Enter at least a Property Name / Address in the sidebar.")
-
-if not unit_number:
-    st.info("Add/select a unit in the sidebar to track multi-unit inspections cleanly.")
-
-with st.form("inspection_form"):
-    st.subheader("Overview & General Notes")
-    general_notes = st.text_area(
-        "Overall comments about the property condition (no personal/tenant details)",
-        height=120,
-    )
-
-    st.markdown("---")
-    st.subheader("Room / Area Details")
-
-    room_data = {}
-
-    for room in selected_rooms:
-        key_prefix = room_key(room)
-        icon = ROOM_ICONS.get(room, "📍")
-        with st.expander(f"{icon} {room}", expanded=False):
-            col1, col2 = st.columns([1, 2])
-
-            with col1:
-                condition = st.selectbox(
-                    f"{room} Condition",
-                    CONDITION_OPTIONS,
-                    key=f"{key_prefix}_condition",
-                )
-
-                suggested = suggest_notes(room, condition)
-                auto_notes = st.text_area(
-                    f"Suggested Notes ({room})",
-                    value=suggested,
-                    key=f"{key_prefix}_auto_notes",
-                )
-
-                notes = st.text_area(
-                    f"Additional Notes ({room})",
-                    key=f"{key_prefix}_notes",
-                    placeholder=f"Add any extra condition-based details for the {room.lower()}...",
-                )
-
-            with col2:
-    st.write(f"**{room} Photos**")
-
-    # Regular photo uploader for room photos
-    photos = st.file_uploader(
-        f"Upload photos for {room}",
-        type=["jpg", "jpeg", "png"],
-        accept_multiple_files=True,
-        key=f"{key_prefix}_photos"
-    )
-
-    # AI analysis uploader (separate)
-    uploaded_photo = st.file_uploader(
-        "Upload a photo for AI analysis",
-        type=["jpg", "jpeg", "png"],
-        key=f"{key_prefix}_ai_photo"
-    )
-
-    # AI analysis uploader (separate)
-    uploaded_photo = st.file_uploader(
-        "Upload a photo for AI analysis",
-        type=["jpg", "jpeg", "png"],
-        key=f"{key_prefix}_ai_photo"
-    )
-if uploaded_photo:
-    st.image(uploaded_photo, caption="Uploaded Photo", use_column_width=True)
-
-    if st.button("Analyze Photo with AI"):
-        with st.spinner("Analyzing photo..."):
-            condition, note = analyze_photo(uploaded_photo)
-
-        st.subheader("AI Suggested Condition")
-        st.success(condition)
-
-        st.subheader("AI Suggested Note")
-        st.write(note)
-
-        if st.button("Accept AI Note"):
-            st.session_state["ai_condition"] = condition
-            st.session_state["ai_note"] = note
-            st.success("AI note added to your inspection.")
-                    import openai
 from PIL import Image
 import io
 import base64
+import pandas as pd
+from fpdf import FPDF
+import openai
+import datetime
+
+# ---------- CONFIG ----------
+
+st.set_page_config(page_title="AI Inspection App", layout="wide")
 
 openai.api_key = st.secrets["OPENAI_API_KEY"]
 
+# ---------- DATA MODELS ----------
+
+DEFAULT_TEMPLATES = {
+    "Move-in / Move-out": [
+        {"room": "Living Room", "items": ["Walls", "Flooring", "Windows", "Doors"]},
+        {"room": "Kitchen", "items": ["Counters", "Cabinets", "Appliances", "Sink"]},
+        {"room": "Bedroom", "items": ["Walls", "Flooring", "Closet", "Windows"]},
+        {"room": "Bathroom", "items": ["Vanity", "Toilet", "Shower/Tub", "Flooring"]},
+    ],
+    "Annual Inspection": [
+        {"room": "Exterior", "items": ["Siding", "Roof (visible)", "Windows", "Doors"]},
+        {"room": "Mechanical", "items": ["Furnace", "Water Heater", "Electrical Panel"]},
+        {"room": "Interior Common", "items": ["Hallways", "Stairs", "Lighting"]},
+    ],
+}
+
+CONDITION_OPTIONS = ["Good", "Fair", "Poor"]
+
+# ---------- AI PHOTO ANALYSIS ----------
+
 def analyze_photo(image_file):
-    img = Image.open(image_file)
+    img = Image.open(image_file).convert("RGB")
     buffered = io.BytesIO()
     img.save(buffered, format="JPEG")
     img_bytes = buffered.getvalue()
     img_b64 = base64.b64encode(img_bytes).decode()
+
+    prompt = (
+        "You are an expert property inspector. Analyze this inspection photo and return:\n"
+        "1. A single word condition rating: Good, Fair, or Poor.\n"
+        "2. A professional, concise inspection note describing any visible damage, wear, cleanliness issues, or concerns.\n\n"
+        "Format your response exactly as:\n"
+        "Condition: <Good/Fair/Poor>\n"
+        "Note: <one or two sentences>"
+    )
 
     response = openai.ChatCompletion.create(
         model="gpt-4o-mini",
@@ -313,7 +55,7 @@ def analyze_photo(image_file):
             {
                 "role": "user",
                 "content": [
-                    {"type": "input_text", "text": "Analyze this inspection photo. Return two things:\n1. Condition rating (Good, Fair, Poor)\n2. A professional inspection note describing any damage, wear, or cleanliness issues."},
+                    {"type": "input_text", "text": prompt},
                     {"type": "input_image", "image_url": f"data:image/jpeg;base64,{img_b64}"}
                 ]
             }
@@ -321,74 +63,258 @@ def analyze_photo(image_file):
     )
 
     ai_text = response["choices"][0]["message"]["content"]
-    lines = ai_text.split("\n")
-    condition = lines[0].replace("Condition:", "").strip()
-    note = "\n".join(lines[1:]).replace("Note:", "").strip()
+    lines = [l.strip() for l in ai_text.split("\n") if l.strip()]
+    condition = "Fair"
+    note = ""
+
+    for line in lines:
+        if line.lower().startswith("condition:"):
+            condition = line.split(":", 1)[1].strip()
+        if line.lower().startswith("note:"):
+            note = line.split(":", 1)[1].strip()
+
+    if condition not in CONDITION_OPTIONS:
+        condition = "Fair"
 
     return condition, note
-                    f"Upload photos for {room}",
-                    type=["png", "jpg", "jpeg"],
-                    accept_multiple_files=True,
-                    key=f"{key_prefix}_photos",
-                )
 
-                if photos:
-                    for i, img in enumerate(photos):
-                        st.image(img, caption=f"{room} Photo {i+1}", use_column_width=True)
+# ---------- PDF GENERATION ----------
 
-            room_data[room] = {
-                "condition": condition,
-                "notes": (auto_notes or "") + ("\n\n" + notes if notes else ""),
-                "photo_names": [p.name for p in photos] if photos else [],
-            }
+class InspectionPDF(FPDF):
+    def header(self):
+        self.set_font("Arial", "B", 14)
+        self.cell(0, 10, "Inspection Report", ln=True, align="C")
+        self.ln(5)
 
-    st.markdown("---")
-    submitted = st.form_submit_button("Save Inspection Report")
+    def footer(self):
+        self.set_y(-15)
+        self.set_font("Arial", "I", 8)
+        self.cell(0, 10, f"Page {self.page_no()}", align="C")
 
-if submitted:
-    report = {
-        "inspection_type": inspection_type,
-        "property_name": property_name,
-        "unit_number": unit_number,
-        "inspector_name": inspector_name,
-        "inspection_date": str(inspection_date),
-        "general_notes": general_notes,
-        "rooms": room_data,
-        "created_at": datetime.now().isoformat(),
-    }
+def generate_pdf(property_name, unit_name, inspection_type, data, photos_dict):
+    pdf = InspectionPDF()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.add_page()
 
-    json_path = save_report(report)
-    st.success(f"Inspection report saved to: `{json_path}`")
+    pdf.set_font("Arial", "", 12)
+    pdf.cell(0, 8, f"Property: {property_name}", ln=True)
+    pdf.cell(0, 8, f"Unit: {unit_name}", ln=True)
+    pdf.cell(0, 8, f"Inspection Type: {inspection_type}", ln=True)
+    pdf.cell(0, 8, f"Date: {datetime.date.today().isoformat()}", ln=True)
+    pdf.ln(5)
 
-    st.subheader("Inspection Overview")
+    current_room = None
+    for row in data:
+        room = row["room"]
+        item = row["item"]
+        condition = row["condition"]
+        note = row["note"]
 
-    condition_counts = {c: 0 for c in CONDITION_OPTIONS}
-    for _, data in report["rooms"].items():
-        condition_counts[data["condition"]] += 1
+        if room != current_room:
+            current_room = room
+            pdf.set_font("Arial", "B", 12)
+            pdf.ln(4)
+            pdf.cell(0, 8, room, ln=True)
+            pdf.set_font("Arial", "", 11)
 
-    st.write("### Condition Summary")
-    st.bar_chart(condition_counts)
+        pdf.cell(0, 6, f"- {item}: {condition}", ln=True)
+        if note:
+            pdf.set_font("Arial", "I", 10)
+            pdf.multi_cell(0, 5, f"  Note: {note}")
+            pdf.set_font("Arial", "", 11)
 
-    st.write("### Room Breakdown")
-    for room, data in report["rooms"].items():
-        st.write(f"**{room}:** {data['condition']}")
+    # Photos section
+    pdf.add_page()
+    pdf.set_font("Arial", "B", 12)
+    pdf.cell(0, 8, "Photos", ln=True)
+    pdf.ln(4)
 
-    st.subheader("Raw Report Data")
-    st.json(report)
+    for key, files in photos_dict.items():
+        room, item = key
+        if not files:
+            continue
+        pdf.set_font("Arial", "B", 11)
+        pdf.cell(0, 6, f"{room} - {item}", ln=True)
+        pdf.set_font("Arial", "", 10)
 
-    st.markdown("---")
-    st.subheader("Export")
+        for f in files:
+            try:
+                img = Image.open(f).convert("RGB")
+                img_buffer = io.BytesIO()
+                img.save(img_buffer, format="JPEG")
+                img_buffer.seek(0)
 
-    pdf_path = generate_pdf(report)
-    st.success(f"PDF generated at: `{pdf_path}`")
+                # Save temp file in memory
+                temp_path = f"temp_{room}_{item}.jpg"
+                with open(temp_path, "wb") as temp_img:
+                    temp_img.write(img_buffer.getvalue())
 
-    with open(pdf_path, "rb") as f:
-        st.download_button(
-            "Download PDF (Landlord / Tenant / Buildium)",
-            f,
-            file_name=f"inspection_{property_name}_{unit_number}.pdf",
-            mime="application/pdf",
+                pdf.image(temp_path, w=80)
+                pdf.ln(2)
+            except Exception:
+                continue
 
+        pdf.ln(4)
+
+    return pdf.output(dest="S").encode("latin-1")
+
+# ---------- SESSION STATE SETUP ----------
+
+if "inspection_data" not in st.session_state:
+    st.session_state.inspection_data = {}  # (room, item) -> {"condition": ..., "note": ...}
+
+if "photos" not in st.session_state:
+    st.session_state.photos = {}  # (room, item) -> [files]
+
+# ---------- SIDEBAR: APP STRUCTURE ----------
+
+st.sidebar.title("Inspection Setup")
+
+property_name = st.sidebar.text_input("Property Name", "123 Sample Street")
+unit_name = st.sidebar.text_input("Unit", "Unit 1")
+
+inspection_type = st.sidebar.selectbox(
+    "Inspection Type",
+    list(DEFAULT_TEMPLATES.keys()),
+    index=0
+)
+
+template_rooms = DEFAULT_TEMPLATES[inspection_type]
+
+room_names = [r["room"] for r in template_rooms]
+selected_room = st.sidebar.selectbox("Room", room_names)
+
+st.sidebar.markdown("---")
+if st.sidebar.button("Reset Inspection Data"):
+    st.session_state.inspection_data = {}
+    st.session_state.photos = {}
+    st.sidebar.success("Inspection data cleared.")
+
+# ---------- MAIN LAYOUT ----------
+
+st.title("AI-Powered Inspection App (HappyCo-style Prototype)")
+
+st.markdown(
+    f"**Property:** {property_name} &nbsp;&nbsp; | &nbsp;&nbsp; "
+    f"**Unit:** {unit_name} &nbsp;&nbsp; | &nbsp;&nbsp; "
+    f"**Type:** {inspection_type}"
+)
+
+st.markdown("---")
+
+# Find selected room structure
+current_room_struct = next(r for r in template_rooms if r["room"] == selected_room)
+items = current_room_struct["items"]
+
+st.header(selected_room)
+
+for item in items:
+    key_prefix = f"{selected_room}_{item}"
+
+    st.subheader(item)
+
+    cols = st.columns([1, 2])
+
+    with cols[0]:
+        condition_key = f"{key_prefix}_condition"
+        note_key = f"{key_prefix}_note"
+
+        current_condition = st.session_state.inspection_data.get(
+            (selected_room, item), {}
+        ).get("condition", "Good")
+
+        condition = st.radio(
+            "Condition",
+            CONDITION_OPTIONS,
+            index=CONDITION_OPTIONS.index(current_condition) if current_condition in CONDITION_OPTIONS else 0,
+            key=condition_key,
+            horizontal=True,
         )
 
+        note_default = st.session_state.inspection_data.get(
+            (selected_room, item), {}
+        ).get("note", "")
 
+        note = st.text_area(
+            "Notes",
+            value=note_default,
+            key=note_key,
+            placeholder=f"Add any notes about the {item.lower()}...",
+        )
+
+    with cols[1]:
+        st.write("**Photos**")
+
+        photos_key = (selected_room, item)
+        uploaded_photos = st.file_uploader(
+            f"Upload photos for {item}",
+            type=["jpg", "jpeg", "png"],
+            accept_multiple_files=True,
+            key=f"{key_prefix}_photos",
+        )
+
+        if uploaded_photos:
+            st.session_state.photos[photos_key] = uploaded_photos
+
+        if photos_key in st.session_state.photos:
+            for p in st.session_state.photos[photos_key]:
+                st.image(p, caption=f"{item} photo", use_column_width=True)
+
+        st.markdown("**AI Photo Analysis**")
+        ai_photo = st.file_uploader(
+            f"Upload a photo of the {item} for AI analysis",
+            type=["jpg", "jpeg", "png"],
+            key=f"{key_prefix}_ai_photo",
+        )
+
+        if ai_photo and st.button(f"Analyze {item} Photo with AI", key=f"{key_prefix}_analyze"):
+            with st.spinner("Analyzing photo with AI..."):
+                ai_condition, ai_note = analyze_photo(ai_photo)
+
+            st.success(f"AI Condition: {ai_condition}")
+            st.info(f"AI Note: {ai_note}")
+
+            # Option to apply AI result
+            if st.button(f"Use AI result for {item}", key=f"{key_prefix}_apply_ai"):
+                st.session_state[condition_key] = ai_condition
+                st.session_state[note_key] = ai_note
+                st.session_state.inspection_data[(selected_room, item)] = {
+                    "condition": ai_condition,
+                    "note": ai_note,
+                }
+                st.success("AI result applied to this item.")
+
+    # Save manual edits to session
+    st.session_state.inspection_data[(selected_room, item)] = {
+        "condition": st.session_state.get(condition_key, "Good"),
+        "note": st.session_state.get(note_key, ""),
+    }
+
+st.markdown("---")
+
+# ---------- SUMMARY + PDF ----------
+
+st.header("Inspection Summary")
+
+summary_rows = []
+for room_struct in template_rooms:
+    room = room_struct["room"]
+    for item in room_struct["items"]:
+        data = st.session_state.inspection_data.get((room, item), {})
+        condition = data.get("condition", "Good")
+        note = data.get("note", "")
+        summary_rows.append(
+            {"room": room, "item": item, "condition": condition, "note": note}
+        )
+
+df = pd.DataFrame(summary_rows)
+st.dataframe(df)
+
+if st.button("Generate PDF Report"):
+    pdf_bytes = generate_pdf(property_name, unit_name, inspection_type, summary_rows, st.session_state.photos)
+    st.download_button(
+        label="Download Inspection PDF",
+        data=pdf_bytes,
+        file_name=f"inspection_{property_name}_{unit_name}.pdf",
+        mime="application/pdf",
+    )
