@@ -2,4 +2,4 @@ streamlit
 pillow
 pandas
 fpdf
-openai>=1.0.0
+requests
