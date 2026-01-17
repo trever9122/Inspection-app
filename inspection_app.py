@@ -61,18 +61,10 @@ IGNORED_TAGS = {
     "personal items", "decor", "decoration", "toys", "laptop", "phone",
     "bag", "bags", "shoes", "books", "guitar", "instrument", "monitor",
     "tv", "television", "dresser", "couch", "lamp", "mirror", "frame",
-    "plant", "plants", "bottle", "bottles", "laundry"
+    "plant", "plants", "bottle", "bottles", "laundry", "toy", "snake",
+    "poster", "picture", "painting", "rug", "carpet", "mattress",
+    "pillowcase", "sheet", "towel", "basket", "bin", "container"
 }
-
-# ---------- CAPTION CLEANING ----------
-
-def clean_caption_for_condition(caption):
-    words = caption.split()
-    cleaned = []
-    for w in words:
-        if w.lower().strip(".,") not in IGNORED_TAGS:
-            cleaned.append(w)
-    return " ".join(cleaned).strip()
 
 # ---------- AZURE VISION ANALYSIS ----------
 
@@ -104,13 +96,12 @@ def analyze_with_azure(image_file):
             conf = t.get("confidence", 0.0)
             tags.append((name, conf))
 
-    caption_text = ""
-    if "captionResult" in result and "text" in result["captionResult"]:
-        caption_text = result["captionResult"]["text"]
+    # We ignore Azure's caption completely for notes
+    caption_text = result.get("captionResult", {}).get("text", "")
 
     return tags, caption_text
 
-# ---------- CONDITION + NOTE LOGIC ----------
+# ---------- CONDITION + NOTE LOGIC (STRUCTURE ONLY) ----------
 
 def derive_condition_and_note(tags, caption_text, item_name):
     structural_tags = []
@@ -121,11 +112,9 @@ def derive_condition_and_note(tags, caption_text, item_name):
 
     has_severe = False
     has_minor = False
-    has_positive = False
 
     negative_hits = []
     minor_hits = []
-    positive_hits = []
 
     for name, conf in structural_tags:
         if name in STRUCTURAL_NEGATIVE_TAGS:
@@ -134,9 +123,6 @@ def derive_condition_and_note(tags, caption_text, item_name):
         elif name in STRUCTURAL_MINOR_TAGS:
             has_minor = True
             minor_hits.append(name)
-        elif name in STRUCTURAL_POSITIVE_TAGS:
-            has_positive = True
-            positive_hits.append(name)
 
     if has_severe:
         condition = "Poor"
@@ -145,7 +131,12 @@ def derive_condition_and_note(tags, caption_text, item_name):
     else:
         condition = "Good"
 
-    clean_caption = clean_caption_for_condition(caption_text)
+    if negative_hits:
+        clean_caption = "visible structural damage present"
+    elif minor_hits:
+        clean_caption = "minor cosmetic wear observed"
+    else:
+        clean_caption = "no visible structural issues"
 
     note_parts = []
 
@@ -172,8 +163,7 @@ def derive_condition_and_note(tags, caption_text, item_name):
                 f"The {item_name} shows significant deterioration. Further assessment is recommended."
             )
 
-    if clean_caption:
-        note_parts.append(f"(Visual summary: {clean_caption}.)")
+    note_parts.append(f"(Visual summary: {clean_caption}.)")
 
     return condition, " ".join(note_parts)
 
@@ -436,29 +426,3 @@ if st.button("Generate PDF Report"):
         file_name=f"inspection_{property_name}_{unit_name}.pdf",
         mime="application/pdf",
     )
-# Words that should NEVER appear in a condition report (objects, belongings, décor)
-NONSTRUCTURAL_OBJECTS = {
-    "toy", "snake", "guitar", "sofa", "chair", "table", "bed", "blanket", "pillow",
-    "clothes", "clothing", "box", "boxes", "bedding", "furniture", "sofa", "chair",
-    "personal", "items", "decor", "decoration", "toys", "laptop", "phone", "bag",
-    "bags", "shoes", "books", "instrument", "monitor", "tv", "television", "dresser",
-    "couch", "lamp", "mirror", "frame", "plant", "plants", "bottle", "bottles",
-    "laundry", "stuffed", "animal", "doll", "figurine", "poster", "picture",
-    "painting", "rug", "carpet", "mattress", "pillowcase", "sheet", "blanket",
-    "towel", "basket", "bin", "container", "toy", "snake"
-}
-
-def clean_caption_for_condition(caption):
-    words = caption.split()
-    cleaned = []
-    for w in words:
-        stripped = w.lower().strip(".,")
-        if stripped not in NONSTRUCTURAL_OBJECTS:
-            cleaned.append(w)
-    cleaned_caption = " ".join(cleaned).strip()
-
-    # If the caption becomes empty, replace with a neutral structural phrase
-    if not cleaned_caption:
-        cleaned_caption = "the surface and surrounding area"
-
-    return cleaned_caption
