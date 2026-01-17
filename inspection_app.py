@@ -253,10 +253,22 @@ with st.form("inspection_form"):
                 )
 
             with col2:
-                st.write(f"**{room} Photos**")
-                photos = st.file_uploader(
-                    uploaded_photo = st.file_uploader("Upload a photo for AI analysis", type=["jpg", "jpeg", "png"])
+    st.write(f"**{room} Photos**")
 
+    # Regular photo uploader for room photos
+    photos = st.file_uploader(
+        f"Upload photos for {room}",
+        type=["jpg", "jpeg", "png"],
+        accept_multiple_files=True,
+        key=f"{key_prefix}_photos"
+    )
+
+    # AI analysis uploader (separate)
+    uploaded_photo = st.file_uploader(
+        "Upload a photo for AI analysis",
+        type=["jpg", "jpeg", "png"],
+        key=f"{key_prefix}_ai_photo"
+    )
 if uploaded_photo:
     st.image(uploaded_photo, caption="Uploaded Photo", use_column_width=True)
 
@@ -371,3 +383,4 @@ if submitted:
             mime="application/pdf",
 
         )
+
