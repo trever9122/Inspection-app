@@ -2,3 +2,4 @@ fpdf
 streamlit
 pillow
 pandas
+streamlit-dragdroplist
