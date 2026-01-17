@@ -1,0 +1,4 @@
+fpdf
+streamlit
+pillow
+pandas
