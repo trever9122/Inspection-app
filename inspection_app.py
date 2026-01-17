@@ -269,6 +269,13 @@ with st.form("inspection_form"):
         type=["jpg", "jpeg", "png"],
         key=f"{key_prefix}_ai_photo"
     )
+
+    # AI analysis uploader (separate)
+    uploaded_photo = st.file_uploader(
+        "Upload a photo for AI analysis",
+        type=["jpg", "jpeg", "png"],
+        key=f"{key_prefix}_ai_photo"
+    )
 if uploaded_photo:
     st.image(uploaded_photo, caption="Uploaded Photo", use_column_width=True)
 
@@ -383,4 +390,5 @@ if submitted:
             mime="application/pdf",
 
         )
+
 
