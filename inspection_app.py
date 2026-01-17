@@ -443,28 +443,19 @@ for item in items:
                     "note": combined_note,
                 }
 
-                if ai_results:
-    final_condition, combined_note = merge_conditions_and_notes(ai_results, item)
-    st.session_state.ai_results[photos_key] = {
-        "condition": final_condition,
-        "note": combined_note,
-    }
+                st.success(f"AI Suggested Condition: {final_condition}")
+                st.info("AI Suggested Notes:\n" + combined_note)
 
-    st.success(f"AI Suggested Condition: {final_condition}")
-    st.info("AI Suggested Notes:\n" + combined_note)
+                if st.button(f"Use AI result for {item}", key=f"{key_prefix}_apply_ai"):
+                    st.session_state[condition_key] = final_condition
+                    st.session_state[note_key] = combined_note
 
-    if st.button(f"Use AI result for {item}", key=f"{key_prefix}_apply_ai"):
-        # Update the widget values safely
-        st.session_state[condition_key] = final_condition
-        st.session_state[note_key] = combined_note
+                    st.session_state.inspection_data[(selected_room, item)] = {
+                        "condition": final_condition,
+                        "note": combined_note,
+                    }
 
-        # Save to inspection data
-        st.session_state.inspection_data[(selected_room, item)] = {
-            "condition": final_condition,
-            "note": combined_note,
-        }
-
-        st.success("AI result applied to this item.")
+                    st.success("AI result applied to this item.")
 
         if photos_key in st.session_state.photos:
             for p in st.session_state.photos[photos_key]:
@@ -513,5 +504,3 @@ if st.button("Generate PDF Report"):
 # ------------------------------
 # END OF FILE
 # ------------------------------
-
-
