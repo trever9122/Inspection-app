@@ -255,6 +255,58 @@ with st.form("inspection_form"):
             with col2:
                 st.write(f"**{room} Photos**")
                 photos = st.file_uploader(
+                    uploaded_photo = st.file_uploader("Upload a photo for AI analysis", type=["jpg", "jpeg", "png"])
+
+if uploaded_photo:
+    st.image(uploaded_photo, caption="Uploaded Photo", use_column_width=True)
+
+    if st.button("Analyze Photo with AI"):
+        with st.spinner("Analyzing photo..."):
+            condition, note = analyze_photo(uploaded_photo)
+
+        st.subheader("AI Suggested Condition")
+        st.success(condition)
+
+        st.subheader("AI Suggested Note")
+        st.write(note)
+
+        if st.button("Accept AI Note"):
+            st.session_state["ai_condition"] = condition
+            st.session_state["ai_note"] = note
+            st.success("AI note added to your inspection.")
+                    import openai
+from PIL import Image
+import io
+import base64
+
+openai.api_key = st.secrets["OPENAI_API_KEY"]
+
+def analyze_photo(image_file):
+    img = Image.open(image_file)
+    buffered = io.BytesIO()
+    img.save(buffered, format="JPEG")
+    img_bytes = buffered.getvalue()
+    img_b64 = base64.b64encode(img_bytes).decode()
+
+    response = openai.ChatCompletion.create(
+        model="gpt-4o-mini",
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {"type": "input_text", "text": "Analyze this inspection photo. Return two things:\n1. Condition rating (Good, Fair, Poor)\n2. A professional inspection note describing any damage, wear, or cleanliness issues."},
+                    {"type": "input_image", "image_url": f"data:image/jpeg;base64,{img_b64}"}
+                ]
+            }
+        ]
+    )
+
+    ai_text = response["choices"][0]["message"]["content"]
+    lines = ai_text.split("\n")
+    condition = lines[0].replace("Condition:", "").strip()
+    note = "\n".join(lines[1:]).replace("Note:", "").strip()
+
+    return condition, note
                     f"Upload photos for {room}",
                     type=["png", "jpg", "jpeg"],
                     accept_multiple_files=True,
@@ -317,4 +369,5 @@ if submitted:
             f,
             file_name=f"inspection_{property_name}_{unit_number}.pdf",
             mime="application/pdf",
+
         )
