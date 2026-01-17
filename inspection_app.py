@@ -466,14 +466,14 @@ for item in items:
                 if ai_results:
                     final_condition, combined_note = merge_conditions_and_notes(ai_results, item)
 
+                    # Save AI results
                     st.session_state.ai_results[photos_key] = {
                         "condition": final_condition,
                         "note": combined_note,
                     }
 
-                    st.success(f"AI Suggested Condition: {final_condition}")
-                    st.info("AI Suggested Notes:\n" + combined_note)
-                    st.caption("AI has been applied as the default. You can still edit the fields on the left.")
+                    # ⭐ CRITICAL FIX — FORCE STREAMLIT TO RE-RUN
+                    st.rerun()
 
             if photos_key in st.session_state.photos:
                 photo_files = st.session_state.photos[photos_key]
@@ -488,7 +488,6 @@ for item in items:
         "condition": condition,
         "note": note,
     }
-
 # ---------------------------------------------------------
 # SUMMARY + PDF
 # ---------------------------------------------------------
@@ -528,3 +527,4 @@ if st.button("Generate PDF Report"):
 # ---------------------------------------------------------
 # END OF FILE
 # ---------------------------------------------------------
+
