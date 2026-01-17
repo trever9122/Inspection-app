@@ -390,7 +390,96 @@ st.markdown("---")
 
 current_room_struct = next(r for r in template_rooms if r["room"] == selected_room)
 items = current_room_struct["items"]
+# ---------- ITEM LOOP (ERROR‑FREE, AUTO‑APPLY AI) ----------
 
+for item in items:
+    key_prefix = f"{selected_room}_{item}"
+    photos_key = (selected_room, item)
+
+    st.subheader(item)
+
+    cols = st.columns([1, 2])
+
+    # -------------------------
+    # LEFT COLUMN: CONDITION + NOTES
+    # -------------------------
+    with cols[0]:
+
+        # Load saved values
+        saved = st.session_state.inspection_data.get((selected_room, item), {})
+
+        # If AI results exist, use them as defaults
+        ai = st.session_state.ai_results.get(photos_key, {})
+
+        default_condition = ai.get("condition", saved.get("condition", "Good"))
+        default_note = ai.get("note", saved.get("note", ""))
+
+        # Render widgets using defaults (NO writing to widget keys)
+        condition = st.radio(
+            "Condition",
+            CONDITION_OPTIONS,
+            index=CONDITION_OPTIONS.index(default_condition),
+            key=f"{key_prefix}_condition",
+            horizontal=True,
+        )
+
+        note = st.text_area(
+            "Notes",
+            value=default_note,
+            key=f"{key_prefix}_note",
+            placeholder=f"Add any notes about the {item.lower()}...",
+        )
+
+    # -------------------------
+    # RIGHT COLUMN: PHOTOS + AI
+    # -------------------------
+    with cols[1]:
+        st.write("**Photos**")
+
+        uploaded_photos = st.file_uploader(
+            f"Upload photos for {item}",
+            type=["jpg", "jpeg", "png"],
+            accept_multiple_files=True,
+            key=f"{key_prefix}_photos",
+        )
+
+        if uploaded_photos:
+            st.session_state.photos[photos_key] = uploaded_photos
+
+            ai_results = []
+            with st.spinner("Analyzing photos with Azure Vision..."):
+                for p in uploaded_photos:
+                    try:
+                        ai_condition, ai_note = analyze_photo_condition_only(p, item)
+                        ai_results.append((ai_condition, ai_note))
+                    except Exception as e:
+                        st.warning(f"Azure analysis failed: {e}")
+
+            if ai_results:
+                final_condition, combined_note = merge_conditions_and_notes(ai_results, item)
+
+                # Save AI results (NOT widget keys)
+                st.session_state.ai_results[photos_key] = {
+                    "condition": final_condition,
+                    "note": combined_note,
+                }
+
+                st.success(f"AI Suggested Condition: {final_condition}")
+                st.info("AI Suggested Notes:\n" + combined_note)
+                st.success("AI applied automatically. You can edit the note on the left.")
+
+        # Show thumbnails
+        if photos_key in st.session_state.photos:
+            for p in st.session_state.photos[photos_key]:
+                st.image(p, caption=f"{item} photo", use_column_width=True)
+
+    # -------------------------
+    # SAVE FINAL VALUES
+    # -------------------------
+    st.session_state.inspection_data[(selected_room, item)] = {
+        "condition": condition,
+        "note": note,
+    }
 st.header(selected_room)
 
 
@@ -516,3 +605,4 @@ if st.button("Generate PDF Report"):
 # ------------------------------
 # END OF FILE
 # ------------------------------
+
