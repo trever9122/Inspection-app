@@ -1,6 +1,6 @@
 # ---------------------------------------------------------
 # AI Inspection App — Clean Modern UI + Auto‑Apply AI
-# Full Rewrite (Part 1 of 2)
+# Full Rewrite with Fixed AI Notes
 # ---------------------------------------------------------
 
 import streamlit as st
@@ -212,9 +212,6 @@ def merge_conditions_and_notes(results, item_name):
 
     combined = "\n".join(f"- {n}" for n in notes)
     return worst, combined
-    # ---------------------------------------------------------
-# PART 2 — Full Rewritten App (Bottom Half)
-# ---------------------------------------------------------
 
 # ---------------------------------------------------------
 # PDF GENERATION
@@ -338,7 +335,6 @@ def generate_pdf(property_name, unit_name, inspection_type, data, photos_dict):
 
     return pdf.output(dest="S").encode("latin-1", "replace")
 
-
 # ---------------------------------------------------------
 # SESSION STATE
 # ---------------------------------------------------------
@@ -351,7 +347,6 @@ if "photos" not in st.session_state:
 
 if "ai_results" not in st.session_state:
     st.session_state.ai_results = {}
-
 
 # ---------------------------------------------------------
 # SIDEBAR
@@ -379,7 +374,6 @@ if st.sidebar.button("Reset Inspection Data"):
     st.session_state.ai_results = {}
     st.sidebar.success("Inspection data cleared.")
 
-
 # ---------------------------------------------------------
 # MAIN HEADER
 # ---------------------------------------------------------
@@ -399,9 +393,8 @@ items = current_room_struct["items"]
 
 st.header(selected_room)
 
-
 # ---------------------------------------------------------
-# ITEM LOOP — CLEAN + MODERN + AUTO-APPLY AI
+# ITEM LOOP — FIXED: AI NOTES IN NOTES BOX
 # ---------------------------------------------------------
 
 for item in items:
@@ -410,91 +403,95 @@ for item in items:
 
     st.markdown(f"### {item}")
 
-    container = st.container()
-    with container:
-        col_left, col_right = st.columns([1.1, 1.4], gap="large")
+    col_left, col_right = st.columns([1.1, 1.4], gap="large")
 
-        # LEFT: CONDITION + NOTES
-        with col_left:
-            condition_widget_key = safe_key(f"{key_prefix}_condition")
-            note_widget_key = safe_key(f"{key_prefix}_note")
+    # LEFT COLUMN — CONDITION + NOTES
+    with col_left:
+        condition_widget_key = safe_key(f"{key_prefix}_condition")
+        note_widget_key = safe_key(f"{key_prefix}_note")
 
-            saved = st.session_state.inspection_data.get((selected_room, item), {})
-            ai = st.session_state.ai_results.get(photos_key, {})
+        saved = st.session_state.inspection_data.get((selected_room, item), {})
+        ai = st.session_state.ai_results.get(photos_key, {})
 
-            default_condition = ai.get("condition", saved.get("condition", "Good"))
-            default_note = ai.get("note", saved.get("note", ""))
+        # AI overrides saved values for defaults
+        default_condition = ai.get("condition", saved.get("condition", "Good"))
+        default_note = ai.get("note", saved.get("note", ""))
 
-            with st.container(border=True):
-                st.markdown("**Condition**")
-                condition = st.radio(
-                    "",
-                    CONDITION_OPTIONS,
-                    index=CONDITION_OPTIONS.index(default_condition),
-                    key=condition_widget_key,
-                    horizontal=True,
-                )
+        with st.container(border=True):
+            st.markdown("**Condition**")
+            condition = st.radio(
+                "",
+                CONDITION_OPTIONS,
+                index=CONDITION_OPTIONS.index(default_condition),
+                key=condition_widget_key,
+                horizontal=True,
+            )
 
-            with st.container(border=True):
-                st.markdown("**Notes**")
-                note = st.text_area(
-                    "",
-                    value=default_note,
-                    key=note_widget_key,
-                    placeholder=f"Add any notes about the {item.lower()}...",
-                    height=120,
-                )
+        with st.container(border=True):
+            st.markdown("**Notes**")
+            note = st.text_area(
+                "",
+                value=default_note,
+                key=note_widget_key,
+                placeholder=f"Add any notes about the {item.lower()}...",
+                height=120,
+            )
 
-        # RIGHT: PHOTOS + AI
-        with col_right:
-            with st.container(border=True):
-                st.markdown("**Photos**")
+    # RIGHT COLUMN — PHOTOS + AI
+    with col_right:
+        with st.container(border=True):
+            st.markdown("**Photos**")
 
-                photos_widget_key = safe_key(f"{key_prefix}_photos")
+            photos_widget_key = safe_key(f"{key_prefix}_photos")
 
-                uploaded_photos = st.file_uploader(
-                    f"Upload photos for {item}",
-                    type=["jpg", "jpeg", "png"],
-                    accept_multiple_files=True,
-                    key=photos_widget_key,
-                )
+            uploaded_photos = st.file_uploader(
+                f"Upload photos for {item}",
+                type=["jpg", "jpeg", "png"],
+                accept_multiple_files=True,
+                key=photos_widget_key,
+            )
 
-                if uploaded_photos:
-                    st.session_state.photos[photos_key] = uploaded_photos
+            if uploaded_photos:
+                st.session_state.photos[photos_key] = uploaded_photos
 
-                    ai_results = []
-                    with st.spinner("Analyzing photos with Azure Vision..."):
-                        for p in uploaded_photos:
-                            try:
-                                ai_condition, ai_note = analyze_photo_condition_only(p, item)
-                                ai_results.append((ai_condition, ai_note))
-                            except Exception as e:
-                                st.warning(f"Azure analysis failed: {e}")
+                ai_results = []
+                with st.spinner("Analyzing photos with Azure Vision..."):
+                    for p in uploaded_photos:
+                        try:
+                            ai_condition, ai_note = analyze_photo_condition_only(p, item)
+                            ai_results.append((ai_condition, ai_note))
+                        except Exception as e:
+                            st.warning(f"Azure analysis failed: {e}")
 
-                    if ai_results:
-                        final_condition, combined_note = merge_conditions_and_notes(ai_results, item)
+                if ai_results:
+                    final_condition, combined_note = merge_conditions_and_notes(ai_results, item)
 
-                        st.session_state.ai_results[photos_key] = {
-                            "condition": final_condition,
-                            "note": combined_note,
-                        }
+                    st.session_state.ai_results[photos_key] = {
+                        "condition": final_condition,
+                        "note": combined_note,
+                    }
 
-                        st.success(f"AI Suggested Condition: {final_condition}")
-                        st.info("AI Suggested Notes:\n" + combined_note)
-                        st.caption("AI has been applied as the default. You can still edit the fields on the left.")
+                    st.success(f"AI Suggested Condition: {final_condition}")
+                    st.info("AI Suggested Notes:\n" + combined_note)
+                    st.caption("AI has been applied as the default. You can still edit the fields on the left.")
 
-                if photos_key in st.session_state.photos:
-                    photo_files = st.session_state.photos[photos_key]
-                    if photo_files:
-                        cols_photos = st.columns(3)
-                        for idx, p in enumerate(photo_files):
-                            with cols_photos[idx % 3]:
-                                st.image(p, caption=f"{item} photo", use_column_width=True)
+            if photos_key in st.session_state.photos:
+                photo_files = st.session_state.photos[photos_key]
+                if photo_files:
+                    cols_photos = st.columns(3)
+                    for idx, p in enumerate(photo_files):
+                        with cols_photos[idx % 3]:
+                            st.image(p, caption=f"{item} photo", use_column_width=True)
 
+    # SAVE FINAL VALUES
     st.session_state.inspection_data[(selected_room, item)] = {
         "condition": condition,
         "note": note,
     }
+
+# ---------------------------------------------------------
+# SUMMARY + PDF
+# ---------------------------------------------------------
 
 st.markdown("---")
 st.header("Inspection Summary")
